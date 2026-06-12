@@ -129,6 +129,10 @@ public class DroneAgent extends Agent {
             // Arrivée à la base
             if ((state == DroneState.RETURNING || state == DroneState.RETURNING_EMPTY)
                     && position.equals(grid.getNestPosition())) {
+                // Notifier la base du retour
+                if (hasFoundVictim) {
+                    notifyBaseReturn();
+                }
                 path.clear();
                 path.add(position);
                 hasFoundVictim = false;
@@ -171,8 +175,8 @@ public class DroneAgent extends Agent {
                     msg.addReceiver(environmentAID);
                     msg.setConversationId("drone-found-victim");
                     msg.setContent("VICTIM_FOUND:" + reinforceFactor + ":" + update.getBestPathSignature());
-                    log.info("[SEND] Drone #{} → Environment (victime trouvée, renfort {:.0%})",
-                            droneId, reinforceFactor);
+                    log.info("[SEND] Drone #{} → Environment (victime trouvée, renfort {}%)",
+                            droneId, Math.round(reinforceFactor * 100));
                     send(msg);
                 }
             }
@@ -326,6 +330,17 @@ public class DroneAgent extends Agent {
         double dist = 0;
         for (int i = 1; i < p.size(); i++) dist += p.get(i - 1).distanceTo(p.get(i));
         return dist;
+    }
+
+    /** Notifier la base de secours du retour avec ou sans victime */
+    private void notifyBaseReturn() {
+        AID baseAID = lookupAgent(agents.BaseAgent.SERVICE_NAME);
+        if (baseAID == null) return;
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(baseAID);
+        msg.setOntology(agents.BaseAgent.ONTOLOGY_DRONE_RETURNED);
+        msg.setContent(hasFoundVictim ? "VICTIM_RESCUED" : "RETURN_EMPTY");
+        send(msg);
     }
 
     @Override

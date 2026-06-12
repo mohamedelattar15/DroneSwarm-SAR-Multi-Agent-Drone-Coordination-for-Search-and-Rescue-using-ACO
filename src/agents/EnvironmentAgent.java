@@ -107,7 +107,10 @@ public class EnvironmentAgent extends Agent {
                         Math.round(factor * 100), stats.getConfirmationCount(), Statistics.FULL_THRESHOLD);
                 grid.applyEliteReinforcement(stats.getBestPath(), factor);
                 grid.setBestPath(stats.getBestPath());
-                if (simFrame != null) simFrame.onBestPathFound(stats.getBestPath().size() - 1);
+                if (simFrame != null) {
+                    simFrame.onBestPathFound(stats.getBestPath().size() - 1);
+                    simFrame.onVictimFound();
+                }
                 sendFeedback(msg.getSender(), "PATH_ACCEPTED:" + factor + ":" + stats.getConfirmationCount());
             } else {
                 sendFeedback(msg.getSender(), "PATH_REJECTED:SIGNATURE");

@@ -36,8 +36,11 @@ public class SimulationFrame extends JFrame {
     private final JLabel betaValueLabel;
     private final JLabel evapValueLabel;
     private final Timer refreshTimer;
+    private int victimsFound = 0;
+    private final int totalVictims;
 
     public SimulationFrame(Grid grid, SimulationConfig config) {
+        this.totalVictims = config.getVictimCount();
         super("🚁 DroneSwarm-SAR - Search and Rescue");
 
         this.grid = grid;
@@ -166,7 +169,9 @@ public class SimulationFrame extends JFrame {
     }
 
     public void onVictimFound() {
-        addEvent("🆘 Victime détectée!");
+        victimsFound++;
+        victimsLabel.setText(String.format("Victimes: %d/%d trouvées", victimsFound, totalVictims));
+        addEvent("🆘 Victime détectée! (" + victimsFound + "/" + totalVictims + ")");
     }
 
     public void addEvent(String text) {

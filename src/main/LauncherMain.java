@@ -50,6 +50,13 @@ public class LauncherMain {
                 "Base", "agents.BaseAgent", new Object[]{config}
             ).start();
 
+            // 3. VictimAgents (un par victime)
+            for (int i = 0; i < config.getVictimCount(); i++) {
+                mainContainer.createNewAgent(
+                    "Victim_" + i, "agents.VictimAgent", null
+                ).start();
+            }
+
             if (enableSniffer) {
                 log.info("Lancement du Sniffer JADE...");
                 mainContainer.createNewAgent(
