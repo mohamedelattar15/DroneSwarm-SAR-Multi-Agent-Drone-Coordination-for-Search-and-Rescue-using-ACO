@@ -12,7 +12,7 @@ target/
 # IDE
 .idea/
 *.iml
-.vscode/
+# .vscode/   ← commenté pour permettre la config partagée
 *.swp
 *.swo
 
