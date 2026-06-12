@@ -40,8 +40,8 @@ public class SimulationFrame extends JFrame {
     private final int totalVictims;
 
     public SimulationFrame(Grid grid, SimulationConfig config) {
-        this.totalVictims = config.getVictimCount();
         super("🚁 DroneSwarm-SAR - Search and Rescue");
+        this.totalVictims = config.getVictimCount();
 
         this.grid = grid;
 
