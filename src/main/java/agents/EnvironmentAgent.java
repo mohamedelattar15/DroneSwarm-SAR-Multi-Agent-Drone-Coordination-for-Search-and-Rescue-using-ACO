@@ -13,6 +13,7 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import utils.MetricsExporter;
 import utils.SimulationConfig;
 import utils.SimulationRuntimeControl;
 import utils.Statistics;
@@ -31,6 +32,7 @@ public class EnvironmentAgent extends Agent {
     private SimulationConfig config;
     private int iteration = 0;
     private int lastReinforcementIteration = -80;
+    private MetricsExporter metricsExporter;
 
     @Override
     protected void setup() {
@@ -50,6 +52,8 @@ public class EnvironmentAgent extends Agent {
 
         createDrones();
         javax.swing.SwingUtilities.invokeLater(() -> simFrame = new SimulationFrame(grid, config));
+
+        this.metricsExporter = new MetricsExporter();
 
         addBehaviour(new EvaporationBehaviour(this, config.getTickTime() * 2));
         addBehaviour(new RecruitmentListener());
@@ -140,6 +144,18 @@ public class EnvironmentAgent extends Agent {
                 broadcastToDrones("DIVERSIFY");
             }
             iteration++;
+            // Export CSV toutes les 10 itérations
+            if (iteration % 10 == 0) {
+                metricsExporter.recordIteration(
+                    stats.getShortestPath(),
+                    stats.getConfirmationCount(),
+                    iteration,
+                    iteration, // stagnation approximative
+                    config.getDroneCount(),
+                    stats.getConfirmationCount() >= Statistics.FULL_THRESHOLD ? 1 : 0
+                );
+            }
+
             if (iteration % 50 == 0) {
                 log.info("--- Rapport Itération {} ---", iteration);
                 stats.printStats();
@@ -167,6 +183,12 @@ public class EnvironmentAgent extends Agent {
 
     @Override
     protected void takeDown() {
+        // Exporter le meilleur chemin à la fin
+        if (stats.getBestPath() != null) {
+            metricsExporter.recordBestPath(stats.getBestPath(), stats.getShortestPath());
+        }
+        metricsExporter.close();
+
         if (simFrame != null) javax.swing.SwingUtilities.invokeLater(() -> simFrame.shutdown());
         try { DFService.deregister(this); } catch (FIPAException ignored) {}
         log.info("EnvironmentAgent terminé");

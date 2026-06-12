@@ -2,6 +2,7 @@ package agents;
 
 import environment.Grid;
 import environment.Position;
+import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.core.behaviours.TickerBehaviour;

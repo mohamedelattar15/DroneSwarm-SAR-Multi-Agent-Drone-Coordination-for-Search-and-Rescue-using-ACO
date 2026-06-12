@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import javax.swing.JProgressBar;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -38,6 +39,8 @@ public class SimulationFrame extends JFrame {
     private final Timer refreshTimer;
     private int victimsFound = 0;
     private final int totalVictims;
+    private final JProgressBar progressBar;
+    private int maxIterations = 500;
 
     public SimulationFrame(Grid grid, SimulationConfig config) {
         super("🚁 DroneSwarm-SAR - Search and Rescue");
@@ -53,6 +56,10 @@ public class SimulationFrame extends JFrame {
         statsLabel = makeLabel("Drones: 0 | Exploration: 20%");
         victimsLabel = makeLabel("Victimes: 0/" + config.getVictimCount() + " trouvées");
         bestPathLabel = makeLabel("Meilleur chemin: --");
+        progressBar = new JProgressBar(0, maxIterations);
+        progressBar.setValue(0);
+        progressBar.setStringPainted(true);
+        progressBar.setString("Itération: 0 / " + maxIterations);
         eventArea = new JTextArea(8, 28);
         eventArea.setEditable(false);
         eventArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
@@ -114,11 +121,12 @@ public class SimulationFrame extends JFrame {
         rightPanel.setBackground(new Color(242, 245, 250));
         rightPanel.setPreferredSize(new java.awt.Dimension(330, 100));
 
-        JPanel metricsPanel = new JPanel(new GridLayout(3, 1, 2, 2));
+        JPanel metricsPanel = new JPanel(new GridLayout(4, 1, 2, 2));
         metricsPanel.setBorder(BorderFactory.createTitledBorder("📊 Métriques"));
         metricsPanel.add(statsLabel);
         metricsPanel.add(victimsLabel);
         metricsPanel.add(bestPathLabel);
+        metricsPanel.add(progressBar);
 
         JPanel controlsPanel = new JPanel(new GridLayout(7, 1, 2, 4));
         controlsPanel.setBorder(BorderFactory.createTitledBorder("🎛 Contrôles"));
@@ -161,6 +169,7 @@ public class SimulationFrame extends JFrame {
                 grid.getDronePositions().size(),
                 (int) (SimulationRuntimeControl.getExplorationRate() * 100)));
         updatePauseButton();
+        updateProgress(grid.getDronePositions().size());
     }
 
     public void onBestPathFound(int steps) {
@@ -172,6 +181,11 @@ public class SimulationFrame extends JFrame {
         victimsFound++;
         victimsLabel.setText(String.format("Victimes: %d/%d trouvées", victimsFound, totalVictims));
         addEvent("🆘 Victime détectée! (" + victimsFound + "/" + totalVictims + ")");
+    }
+
+    public void updateProgress(int iteration) {
+        progressBar.setValue(Math.min(iteration, maxIterations));
+        progressBar.setString("Itération: " + iteration + " / " + maxIterations);
     }
 
     public void addEvent(String text) {

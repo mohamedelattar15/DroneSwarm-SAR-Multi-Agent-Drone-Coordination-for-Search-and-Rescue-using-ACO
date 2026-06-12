@@ -78,7 +78,15 @@ public class SimulationConfig implements Serializable {
     public void setRandomExploration(double v) { this.randomExploration = clamp(v, 0.0, 1.0); }
     public void setRho(double v) { this.rho = clamp(v, 0.001, 0.5); }
     public void setDroneStepIntervalMs(int v) { this.droneStepIntervalMs = Math.max(20, v); }
+    public void setGridWidth(int v) { this.gridWidth = Math.max(10, v); }
+    public void setGridHeight(int v) { this.gridHeight = Math.max(10, v); }
+    public void setVictimCount(int v) { this.victimCount = Math.max(1, v); }
+    public void setObstacleCount(int v) { this.obstacleCount = Math.max(0, v); }
+    public void setPerceptionRadius(int v) { this.perceptionRadius = Math.max(1, v); }
+    public void setStagnationThreshold(int v) { this.stagnationThreshold = Math.max(50, v); }
+    public void setMaxDroneSteps(int v) { this.maxDroneSteps = Math.max(100, v); }
     public void setDroneCount(int v) { this.droneCount = Math.max(1, v); }
+    public void setTickTime(long v) { this.tickTime = Math.max(20, v); }
 
     private double clamp(double v, double min, double max) {
         return Math.max(min, Math.min(max, v));
