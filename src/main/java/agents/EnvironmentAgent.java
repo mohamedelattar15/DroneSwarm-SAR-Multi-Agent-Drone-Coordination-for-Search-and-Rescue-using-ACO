@@ -84,6 +84,8 @@ public class EnvironmentAgent extends Agent {
         log.info("{} drones créés", config.getDroneCount());
     }
 
+    private int lastVictimCount = 0;
+
     private class RecruitmentListener extends CyclicBehaviour {
         @Override
         public void action() {
@@ -105,19 +107,41 @@ public class EnvironmentAgent extends Agent {
                 return;
             }
 
-            if (stats.getBestPath() != null && stats.matchesCurrentBest(pathSignature)) {
-                lastReinforcementIteration = iteration;
-                log.info("[VALIDATION] Victime confirmée! Renfort x{}% (confirmations: {}/{})",
-                        Math.round(factor * 100), stats.getConfirmationCount(), Statistics.FULL_THRESHOLD);
-                grid.applyEliteReinforcement(stats.getBestPath(), factor);
-                grid.setBestPath(stats.getBestPath());
-                if (simFrame != null) {
-                    simFrame.onBestPathFound(stats.getBestPath().size() - 1);
-                    simFrame.onVictimFound();
+            if (stats.getBestPath() != null) {
+                // Lire le nombre de victimes uniques AVANT toute modification
+                int uniqueBefore = stats.getUniqueVictimsFound();
+
+                if (stats.matchesCurrentBest(pathSignature)) {
+                    lastReinforcementIteration = iteration;
+                    log.info("[VALIDATION] Victime confirmée! Renfort x{}% (confirmations: {}/{})",
+                            Math.round(factor * 100), stats.getConfirmationCount(), Statistics.FULL_THRESHOLD);
+                    grid.applyEliteReinforcement(stats.getBestPath(), factor);
+                    grid.setBestPath(stats.getBestPath());
+                    grid.setVictimPaths(stats.getAllVictimPaths());
+
+                    if (simFrame != null) {
+                        simFrame.onBestPathFound(stats.getBestPath().size() - 1);
+                    }
+                    sendFeedback(msg.getSender(), "PATH_ACCEPTED:" + factor + ":" + stats.getConfirmationCount());
+                } else {
+                    // Chemin rejeté mais on met à jour l'affichage
+                    grid.setBestPath(stats.getBestPath());
+                    grid.setVictimPaths(stats.getAllVictimPaths());
+
+                    if (simFrame != null) {
+                        simFrame.onBestPathFound(stats.getBestPath().size() - 1);
+                    }
+                    sendFeedback(msg.getSender(), "PATH_REJECTED:SIGNATURE");
                 }
-                sendFeedback(msg.getSender(), "PATH_ACCEPTED:" + factor + ":" + stats.getConfirmationCount());
-            } else {
-                sendFeedback(msg.getSender(), "PATH_REJECTED:SIGNATURE");
+
+                // Après traitement, notifier si le nombre de victimes a augmenté
+                int uniqueAfter = stats.getUniqueVictimsFound();
+                if (simFrame != null && uniqueAfter > lastVictimCount) {
+                    for (int i = lastVictimCount; i < uniqueAfter; i++) {
+                        simFrame.onVictimFound();
+                    }
+                    lastVictimCount = uniqueAfter;
+                }
             }
         }
     }

@@ -60,11 +60,7 @@ public class BaseAgent extends Agent {
             if (msg == null) { block(); return; }
 
             totalReturns++;
-            String content = msg.getContent();
-            if (content != null && content.startsWith("VICTIM_RESCUED")) {
-                victimsRescued++;
-                log.info("🚁 {} a secouru une victime! Total: {}", msg.getSender().getLocalName(), victimsRescued);
-            }
+            log.debug("{} de retour à la base (retour #{})", msg.getSender().getLocalName(), totalReturns);
 
             ACLMessage reply = msg.createReply();
             reply.setPerformative(ACLMessage.INFORM);

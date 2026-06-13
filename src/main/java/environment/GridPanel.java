@@ -19,6 +19,8 @@ public class GridPanel extends JPanel {
     private final int cellSize;
     private Map<String, Position> dronePositions;
     private List<Position> bestPath = new java.util.ArrayList<>();
+    /** ✅ Liste de tous les chemins vers les victimes */
+    private List<List<Position>> victimPaths = new java.util.ArrayList<>();
 
     public GridPanel(Grid grid, int cellSize) {
         this.grid = grid;
@@ -29,6 +31,7 @@ public class GridPanel extends JPanel {
 
     public void setDronePositions(Map<String, Position> positions) { this.dronePositions = positions; }
     public void setBestPath(List<Position> path) { this.bestPath = (path == null) ? new java.util.ArrayList<>() : path; }
+    public void setVictimPaths(List<List<Position>> paths) { this.victimPaths = (paths == null) ? new java.util.ArrayList<>() : paths; }
 
     @Override
     protected void paintComponent(Graphics g) {
@@ -76,10 +79,35 @@ public class GridPanel extends JPanel {
             }
         }
 
-        // Meilleur chemin (bleu)
+        // ✅ Chemins vers les victimes (chaque victime = couleur différente)
+        Color[] pathColors = {
+            new Color(30, 80, 220, 150),   // Bleu
+            new Color(220, 30, 180, 150),  // Rose
+            new Color(30, 180, 80, 150),   // Vert
+            new Color(220, 120, 30, 150),  // Orange
+            new Color(120, 30, 220, 150),  // Violet
+        };
+        int colorIndex = 0;
+        for (List<Position> path : victimPaths) {
+            if (path.size() > 1) {
+                Color c = pathColors[colorIndex % pathColors.length];
+                g2.setColor(c);
+                g2.setStroke(new BasicStroke(Math.max(2, cellSize / 4)));
+                for (int k = 0; k < path.size() - 1; k++) {
+                    Position a = path.get(k);
+                    Position b = path.get(k + 1);
+                    g2.drawLine(a.x * cellSize + cellSize / 2, a.y * cellSize + cellSize / 2,
+                            b.x * cellSize + cellSize / 2, b.y * cellSize + cellSize / 2);
+                }
+                colorIndex++;
+            }
+        }
+        g2.setStroke(new BasicStroke(1));
+
+        // Meilleur chemin (bleu épais) - toujours affiché
         if (bestPath.size() > 1) {
-            g2.setColor(new Color(30, 80, 220, 120));
-            g2.setStroke(new BasicStroke(Math.max(2, cellSize / 4)));
+            g2.setColor(new Color(30, 80, 220, 200));
+            g2.setStroke(new BasicStroke(Math.max(3, cellSize / 3)));
             for (int k = 0; k < bestPath.size() - 1; k++) {
                 Position a = bestPath.get(k);
                 Position b = bestPath.get(k + 1);

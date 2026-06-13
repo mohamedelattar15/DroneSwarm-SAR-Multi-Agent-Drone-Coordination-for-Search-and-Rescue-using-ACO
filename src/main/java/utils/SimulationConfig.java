@@ -9,8 +9,8 @@ public class SimulationConfig implements Serializable {
 
     private int gridWidth = 60;
     private int gridHeight = 60;
-    private int nestX = 5;
-    private int nestY = 5;
+    private int nestX = 30;
+    private int nestY = 30;
     private int droneCount = 10;
     private int victimCount = 5;
     private double alpha = 1.0;

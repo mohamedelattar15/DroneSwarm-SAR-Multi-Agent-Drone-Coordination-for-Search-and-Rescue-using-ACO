@@ -25,6 +25,9 @@ public class Grid {
     private final List<Position> victimPositions;
     private final Map<String, Position> dronePositions;
     private List<Position> bestPath = new ArrayList<>();
+    /** ✅ Liste de tous les chemins vers les victimes trouvées */
+    private final List<List<Position>> victimPaths = new ArrayList<>();
+    private int victimsFound = 0;
     private final Random random = new Random();
 
     public Grid(SimulationConfig config) {
@@ -213,5 +216,60 @@ public class Grid {
 
     public synchronized List<Position> getBestPath() {
         return new ArrayList<>(bestPath);
+    }
+
+    /** ✅ Vérifie si une victime (par sa position) a déjà été trouvée */
+    public synchronized boolean isVictimAlreadyFound(Position victimPos) {
+        if (victimPos == null) return false;
+        for (List<Position> existingPath : victimPaths) {
+            Position last = existingPath.get(existingPath.size() - 1);
+            if (last.equals(victimPos)) return true;
+        }
+        return false;
+    }
+
+    /** ✅ Vérifie si une victime (dernière position du chemin) a déjà été trouvée */
+    public synchronized boolean isVictimAlreadyFound(List<Position> path) {
+        if (path == null || path.size() < 2) return false;
+        Position victimPos = path.get(path.size() - 1);
+        for (List<Position> existingPath : victimPaths) {
+            Position last = existingPath.get(existingPath.size() - 1);
+            if (last.equals(victimPos)) return true;
+        }
+        return false;
+    }
+
+    /** ✅ Remplace tous les chemins de victimes (depuis Statistics) */
+    public synchronized void setVictimPaths(List<List<Position>> paths) {
+        this.victimPaths.clear();
+        if (paths != null) {
+            for (List<Position> p : paths) {
+                if (p != null && p.size() >= 2) {
+                    this.victimPaths.add(new ArrayList<>(p));
+                }
+            }
+        }
+        this.victimsFound = this.victimPaths.size();
+    }
+
+    /** ✅ Ajoute un chemin vers une victime (sans doublon) */
+    public synchronized void addVictimPath(List<Position> path) {
+        if (path == null || path.size() < 2) return;
+        Position victimPos = path.get(path.size() - 1);
+        for (List<Position> existingPath : victimPaths) {
+            Position last = existingPath.get(existingPath.size() - 1);
+            if (last.equals(victimPos)) return;
+        }
+        victimPaths.add(new ArrayList<>(path));
+        victimsFound++;
+    }
+
+    /** ✅ Retourne tous les chemins vers les victimes */
+    public synchronized List<List<Position>> getVictimPaths() {
+        return new ArrayList<>(victimPaths);
+    }
+
+    public synchronized int getVictimsFound() {
+        return victimsFound;
     }
 }

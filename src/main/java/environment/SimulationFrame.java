@@ -164,10 +164,13 @@ public class SimulationFrame extends JFrame {
     public void refresh() {
         gridPanel.setDronePositions(grid.getDronePositions());
         gridPanel.setBestPath(grid.getBestPath());
+        gridPanel.setVictimPaths(grid.getVictimPaths());
         gridPanel.repaint();
         statsLabel.setText(String.format("Drones: %d | Exploration: %d%%",
                 grid.getDronePositions().size(),
                 (int) (SimulationRuntimeControl.getExplorationRate() * 100)));
+        victimsLabel.setText(String.format("Victimes: %d/%d trouvées",
+                Math.max(victimsFound, grid.getVictimsFound()), grid.getVictimPositions().size()));
         updatePauseButton();
         updateProgress(grid.getDronePositions().size());
     }
@@ -178,9 +181,11 @@ public class SimulationFrame extends JFrame {
     }
 
     public void onVictimFound() {
-        victimsFound++;
-        victimsLabel.setText(String.format("Victimes: %d/%d trouvées", victimsFound, totalVictims));
-        addEvent("🆘 Victime détectée! (" + victimsFound + "/" + totalVictims + ")");
+        SwingUtilities.invokeLater(() -> {
+            victimsFound++;
+            victimsLabel.setText(String.format("Victimes: %d/%d trouvées", victimsFound, totalVictims));
+            addEvent("🆘 Victime détectée! (" + victimsFound + "/" + totalVictims + ")");
+        });
     }
 
     public void updateProgress(int iteration) {
