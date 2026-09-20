@@ -8,6 +8,7 @@ import jade.wrapper.ContainerController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import utils.SimulationConfig;
+import utils.SimulationScenario;
 
 /**
  * Point d'entrée de la simulation DroneSwarm-SAR.
@@ -20,7 +21,7 @@ public class LauncherMain {
     public static void main(String[] args) {
         try {
             boolean enableSniffer = shouldEnableSniffer(args);
-            SimulationConfig config = SimulationConfig.defaults();
+            SimulationConfig config = resolveConfig(args);
 
             log.info("========================================");
             log.info("  🚁 DroneSwarm-SAR");
@@ -50,12 +51,7 @@ public class LauncherMain {
                 "Base", "agents.BaseAgent", new Object[]{config}
             ).start();
 
-            // 3. VictimAgents (un par victime)
-            for (int i = 0; i < config.getVictimCount(); i++) {
-                mainContainer.createNewAgent(
-                    "Victim_" + i, "agents.VictimAgent", null
-                ).start();
-            }
+            // 3. VictimAgents : créés par l'EnvironmentAgent (il connaît les positions)
 
             if (enableSniffer) {
                 log.info("Lancement du Sniffer JADE...");
@@ -79,5 +75,20 @@ public class LauncherMain {
             if ("--no-sniffer".equalsIgnoreCase(arg)) return false;
         }
         return true;
+    }
+
+    /** ✅ Permet de choisir un scénario via --scenario=<nom> (demo, standard, urban, disaster, nocturnal) */
+    private static SimulationConfig resolveConfig(String[] args) {
+        if (args != null) {
+            for (String arg : args) {
+                if (arg != null && arg.startsWith("--scenario=")) {
+                    String name = arg.substring("--scenario=".length()).trim();
+                    SimulationScenario scenario = SimulationScenario.findByName(name);
+                    log.info("Scénario sélectionné: {}", scenario);
+                    return scenario.getConfig();
+                }
+            }
+        }
+        return SimulationConfig.defaults();
     }
 }

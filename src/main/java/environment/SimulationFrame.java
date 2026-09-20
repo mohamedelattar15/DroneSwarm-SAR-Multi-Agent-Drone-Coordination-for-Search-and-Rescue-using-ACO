@@ -37,7 +37,6 @@ public class SimulationFrame extends JFrame {
     private final JLabel betaValueLabel;
     private final JLabel evapValueLabel;
     private final Timer refreshTimer;
-    private int victimsFound = 0;
     private final int totalVictims;
     private final JProgressBar progressBar;
     private int maxIterations = 500;
@@ -59,7 +58,7 @@ public class SimulationFrame extends JFrame {
         progressBar = new JProgressBar(0, maxIterations);
         progressBar.setValue(0);
         progressBar.setStringPainted(true);
-        progressBar.setString("Itération: 0 / " + maxIterations);
+        progressBar.setString("Victimes trouvées: 0 / " + maxIterations);
         eventArea = new JTextArea(8, 28);
         eventArea.setEditable(false);
         eventArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
@@ -170,9 +169,9 @@ public class SimulationFrame extends JFrame {
                 grid.getDronePositions().size(),
                 (int) (SimulationRuntimeControl.getExplorationRate() * 100)));
         victimsLabel.setText(String.format("Victimes: %d/%d trouvées",
-                Math.max(victimsFound, grid.getVictimsFound()), grid.getVictimPositions().size()));
+                grid.getVictimsFound(), grid.getVictimPositions().size()));
         updatePauseButton();
-        updateProgress(grid.getDronePositions().size());
+        updateProgress(grid.getVictimsFound());
     }
 
     public void onBestPathFound(int steps) {
@@ -182,15 +181,15 @@ public class SimulationFrame extends JFrame {
 
     public void onVictimFound() {
         SwingUtilities.invokeLater(() -> {
-            victimsFound++;
-            victimsLabel.setText(String.format("Victimes: %d/%d trouvées", victimsFound, totalVictims));
-            addEvent("🆘 Victime détectée! (" + victimsFound + "/" + totalVictims + ")");
+            int found = grid.getVictimsFound();
+            victimsLabel.setText(String.format("Victimes: %d/%d trouvées", found, totalVictims));
+            addEvent("🆘 Victime détectée! (" + found + "/" + totalVictims + ")");
         });
     }
 
-    public void updateProgress(int iteration) {
-        progressBar.setValue(Math.min(iteration, maxIterations));
-        progressBar.setString("Itération: " + iteration + " / " + maxIterations);
+    public void updateProgress(int victimsFound) {
+        progressBar.setValue(Math.min(victimsFound, maxIterations));
+        progressBar.setString("Victimes trouvées: " + victimsFound + " / " + maxIterations);
     }
 
     public void addEvent(String text) {

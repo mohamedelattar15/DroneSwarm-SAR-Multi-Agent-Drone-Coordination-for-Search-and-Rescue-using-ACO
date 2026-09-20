@@ -60,6 +60,10 @@ public class BaseAgent extends Agent {
             if (msg == null) { block(); return; }
 
             totalReturns++;
+            if ("VICTIM_RESCUED".equals(msg.getContent())) {
+                victimsRescued++;
+                log.info("🚑 Victime secourue (total: {}/{})", victimsRescued, config.getVictimCount());
+            }
             log.debug("{} de retour à la base (retour #{})", msg.getSender().getLocalName(), totalReturns);
 
             ACLMessage reply = msg.createReply();

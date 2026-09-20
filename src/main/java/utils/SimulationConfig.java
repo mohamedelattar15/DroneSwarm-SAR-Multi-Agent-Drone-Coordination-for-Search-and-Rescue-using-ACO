@@ -18,6 +18,8 @@ public class SimulationConfig implements Serializable {
     private double rho = 0.02;
     private double rhoConfirmed = 0.005;
     private double rhoUnconfirmed = 0.04;
+    private double rhoConfirmedFactor = 0.25;
+    private double rhoUnconfirmedFactor = 2.0;
     private double eliteFactor = 0.5;
     private double randomExploration = 0.20;
     private double extraExplorationRate = 0.25;
@@ -52,6 +54,8 @@ public class SimulationConfig implements Serializable {
     public double getRho() { return rho; }
     public double getRhoConfirmed() { return rhoConfirmed; }
     public double getRhoUnconfirmed() { return rhoUnconfirmed; }
+    public double getRhoConfirmedFactor() { return rhoConfirmedFactor; }
+    public double getRhoUnconfirmedFactor() { return rhoUnconfirmedFactor; }
     public double getEliteFactor() { return eliteFactor; }
     public double getRandomExploration() { return randomExploration; }
     public double getExtraExplorationRate() { return extraExplorationRate; }

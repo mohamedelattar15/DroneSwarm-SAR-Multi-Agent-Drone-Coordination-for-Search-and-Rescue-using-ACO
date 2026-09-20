@@ -42,6 +42,7 @@ public class EnvironmentAgent extends Agent {
 
         this.grid = new Grid(config);
         this.stats = new Statistics();
+        this.stats.setStagnationThreshold(config.getStagnationThreshold());
         SimulationRuntimeControl.initialize(config);
         registerWithDF();
 
@@ -51,6 +52,7 @@ public class EnvironmentAgent extends Agent {
                 config.getGridWidth(), config.getGridHeight());
 
         createDrones();
+        createVictims();
         javax.swing.SwingUtilities.invokeLater(() -> simFrame = new SimulationFrame(grid, config));
 
         this.metricsExporter = new MetricsExporter();
@@ -84,6 +86,25 @@ public class EnvironmentAgent extends Agent {
         log.info("{} drones créés", config.getDroneCount());
     }
 
+    /**
+     * Crée un VictimAgent par victime, nommé "Victim_<x>_<y>" afin que les drones
+     * puissent retrouver l'agent correspondant à une position via le DF.
+     */
+    private void createVictims() {
+        int index = 0;
+        for (environment.Position p : grid.getVictimPositions()) {
+            try {
+                getContainerController().createNewAgent(
+                    "Victim_" + p.x + "_" + p.y, "agents.VictimAgent", null
+                ).start();
+                index++;
+            } catch (Exception e) {
+                log.error("Erreur création victime {}", p, e);
+            }
+        }
+        log.info("{} agents victimes créés", index);
+    }
+
     private int lastVictimCount = 0;
 
     private class RecruitmentListener extends CyclicBehaviour {
@@ -111,7 +132,12 @@ public class EnvironmentAgent extends Agent {
                 // Lire le nombre de victimes uniques AVANT toute modification
                 int uniqueBefore = stats.getUniqueVictimsFound();
 
-                if (stats.matchesCurrentBest(pathSignature)) {
+                // ✅ Validation tolérante : signature exacte OU similarité >= seuil
+                boolean accepted = stats.matchesCurrentBest(pathSignature)
+                        || stats.isSimilarToCurrentBest(stats.getBestPath(),
+                                config.getPathSimilarityThreshold());
+
+                if (accepted) {
                     lastReinforcementIteration = iteration;
                     log.info("[VALIDATION] Victime confirmée! Renfort x{}% (confirmations: {}/{})",
                             Math.round(factor * 100), stats.getConfirmationCount(), Statistics.FULL_THRESHOLD);
@@ -133,16 +159,23 @@ public class EnvironmentAgent extends Agent {
                     }
                     sendFeedback(msg.getSender(), "PATH_REJECTED:SIGNATURE");
                 }
-
-                // Après traitement, notifier si le nombre de victimes a augmenté
-                int uniqueAfter = stats.getUniqueVictimsFound();
-                if (simFrame != null && uniqueAfter > lastVictimCount) {
-                    for (int i = lastVictimCount; i < uniqueAfter; i++) {
-                        simFrame.onVictimFound();
-                    }
-                    lastVictimCount = uniqueAfter;
-                }
             }
+        }
+    }
+
+    /**
+     * ✅ Aligne l'affichage des victimes sur la source unique (Grid).
+     * Appelée à chaque tick, elle rattrape toute victime détectée pendant un
+     * cooldown ou en l'absence de bestPath, ce qui évitait l'affichage "1/5".
+     */
+    private void syncVictimDisplay() {
+        if (simFrame == null) return;
+        int found = grid.getVictimsFound();
+        if (found > lastVictimCount) {
+            for (int i = lastVictimCount; i < found; i++) {
+                simFrame.onVictimFound();
+            }
+            lastVictimCount = found;
         }
     }
 
@@ -167,6 +200,11 @@ public class EnvironmentAgent extends Agent {
                 stats.resetStagnation();
                 broadcastToDrones("DIVERSIFY");
             }
+
+            // ✅ Synchronisation de l'UI sur la source unique (Grid), indépendamment
+            // du flux de validation/cooldown : évite que l'affichage reste bloqué.
+            syncVictimDisplay();
+
             iteration++;
             // Export CSV toutes les 10 itérations
             if (iteration % 10 == 0) {
@@ -174,9 +212,9 @@ public class EnvironmentAgent extends Agent {
                     stats.getShortestPath(),
                     stats.getConfirmationCount(),
                     iteration,
-                    iteration, // stagnation approximative
+                    stats.getIterationsSinceImprovement(),
                     config.getDroneCount(),
-                    stats.getConfirmationCount() >= Statistics.FULL_THRESHOLD ? 1 : 0
+                    stats.getUniqueVictimsFound()
                 );
             }
 

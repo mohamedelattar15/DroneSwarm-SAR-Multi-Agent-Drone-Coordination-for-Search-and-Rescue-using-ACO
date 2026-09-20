@@ -47,10 +47,15 @@ public class Statistics {
     private int confirmationCount = 0;
     private int totalDiscoveries = 0;
     private int iterationsSinceImprovement = 0;
-    private static final int STAGNATION_THRESHOLD = 300;
+    private int stagnationThreshold = 300;
 
     public static final int MEDIUM_THRESHOLD = 2;
     public static final int FULL_THRESHOLD = 3;
+
+    /** ✅ Configure le seuil de stagnation depuis SimulationConfig */
+    public synchronized void setStagnationThreshold(int threshold) {
+        this.stagnationThreshold = Math.max(1, threshold);
+    }
 
     /** Enregistrement pour une victime spécifique */
     private static class VictimRecord {
@@ -139,7 +144,7 @@ public class Statistics {
     public synchronized void tick() { iterationsSinceImprovement++; }
 
     public synchronized boolean isStagnating() {
-        return bestPath != null && iterationsSinceImprovement >= STAGNATION_THRESHOLD;
+        return bestPath != null && iterationsSinceImprovement >= stagnationThreshold;
     }
 
     public synchronized void resetStagnation() {
@@ -154,6 +159,16 @@ public class Statistics {
 
     public synchronized boolean matchesCurrentBest(String signature) {
         return signature != null && signature.equals(bestPathSignature);
+    }
+
+    /**
+     * ✅ Validation tolérante : accepte un chemin candidat s'il est suffisamment
+     * similaire (Jaccard >= seuil) au meilleur chemin courant, même si la signature
+     * exacte diffère. Retourne false si aucun meilleur chemin n'existe encore.
+     */
+    public synchronized boolean isSimilarToCurrentBest(List<Position> candidate, double threshold) {
+        if (candidate == null || bestPath == null) return false;
+        return computeSimilarity(candidate, bestPath) >= threshold;
     }
 
     private double reinforcementFactorFor(int confirmations) {
@@ -183,13 +198,20 @@ public class Statistics {
         return sb.toString();
     }
 
-    private double computeSimilarity(List<Position> first, List<Position> second) {
+    /** ✅ Similarité de Jaccard entre deux chemins (0.0 à 1.0) */
+    public synchronized double computeSimilarity(List<Position> first, List<Position> second) {
+        if (first == null || second == null) return 0.0;
         Set<Position> firstSet = new HashSet<>(first);
         Set<Position> secondSet = new HashSet<>(second);
         int intersection = 0;
         for (Position p : firstSet) { if (secondSet.contains(p)) intersection++; }
         int refSize = Math.max(firstSet.size(), secondSet.size());
         return refSize == 0 ? 0.0 : (double) intersection / refSize;
+    }
+
+    /** ✅ Retourne le nombre d'itérations depuis la dernière amélioration */
+    public synchronized int getIterationsSinceImprovement() {
+        return iterationsSinceImprovement;
     }
 
     public synchronized void printStats() {
@@ -200,6 +222,6 @@ public class Statistics {
         log.info("Victimes uniques trouvées: {}", victimsMap.size());
         log.info("Confirmations courantes: {}/{}", confirmationCount, FULL_THRESHOLD);
         log.info("Découvertes totales: {}", totalDiscoveries);
-        log.info("Stagnation: {}/{}", iterationsSinceImprovement, STAGNATION_THRESHOLD);
+        log.info("Stagnation: {}/{}", iterationsSinceImprovement, stagnationThreshold);
     }
 }

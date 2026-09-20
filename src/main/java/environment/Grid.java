@@ -21,16 +21,17 @@ public class Grid {
     private final int height;
     private final double[][] pheromones;
     private final boolean[][] obstacles;
+    private final SimulationConfig config;
     private final Position nestPosition;
     private final List<Position> victimPositions;
     private final Map<String, Position> dronePositions;
     private List<Position> bestPath = new ArrayList<>();
     /** ✅ Liste de tous les chemins vers les victimes trouvées */
     private final List<List<Position>> victimPaths = new ArrayList<>();
-    private int victimsFound = 0;
     private final Random random = new Random();
 
     public Grid(SimulationConfig config) {
+        this.config = config;
         this.width = config.getGridWidth();
         this.height = config.getGridHeight();
         this.pheromones = new double[width][height];
@@ -101,8 +102,9 @@ public class Grid {
 
     public synchronized void evaporateDifferentiated(List<Position> confirmedPath, int confirmationCount) {
         double baseRho = utils.SimulationRuntimeControl.getEvaporationRate();
-        double rhoConfirmed = Math.min(baseRho * 0.25, 0.01);
-        double rhoUnconfirmed = Math.min(baseRho * 2.0, 0.1);
+        // ✅ Taux d'évaporation différenciés pilotés par la configuration
+        double rhoConfirmed = Math.min(baseRho * config.getRhoConfirmedFactor(), 0.01);
+        double rhoUnconfirmed = Math.min(baseRho * config.getRhoUnconfirmedFactor(), 0.1);
 
         if (confirmedPath == null || confirmationCount < Statistics.MEDIUM_THRESHOLD) {
             for (int i = 0; i < width; i++) {
@@ -199,7 +201,11 @@ public class Grid {
     }
 
     public boolean[][] getObstacleMap() {
-        return obstacles;
+        boolean[][] copy = new boolean[width][height];
+        for (int i = 0; i < width; i++) {
+            System.arraycopy(obstacles[i], 0, copy[i], 0, height);
+        }
+        return copy;
     }
 
     public void updateDronePosition(String droneId, Position pos) {
@@ -249,7 +255,6 @@ public class Grid {
                 }
             }
         }
-        this.victimsFound = this.victimPaths.size();
     }
 
     /** ✅ Ajoute un chemin vers une victime (sans doublon) */
@@ -261,7 +266,6 @@ public class Grid {
             if (last.equals(victimPos)) return;
         }
         victimPaths.add(new ArrayList<>(path));
-        victimsFound++;
     }
 
     /** ✅ Retourne tous les chemins vers les victimes */
@@ -270,6 +274,6 @@ public class Grid {
     }
 
     public synchronized int getVictimsFound() {
-        return victimsFound;
+        return victimPaths.size();
     }
 }
