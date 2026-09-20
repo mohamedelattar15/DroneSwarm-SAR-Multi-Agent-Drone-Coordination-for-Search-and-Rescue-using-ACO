@@ -33,9 +33,10 @@ REM --- Compilation si target\classes absent ---
 IF NOT EXIST "%CLASSES%" (
     echo Compilation des sources...
     IF NOT EXIST "target\classes" MKDIR "target\classes"
-    "%JAVA_HOME%\bin\javac.exe" -encoding UTF-8 -cp "%CP%" -d "%CLASSES%" ^
-        src\main\java\agents\*.java src\main\java\environment\*.java ^
-        src\main\java\main\*.java src\main\java\utils\*.java
+    FOR /R "src\main\java" %%f IN (*.java) DO (
+        SET "SOURCES=!SOURCES! %%f"
+    )
+    "%JAVA_HOME%\bin\javac.exe" -encoding UTF-8 -cp "%CP%" -d "%CLASSES%" !SOURCES!
     IF ERRORLEVEL 1 (
         echo [ERREUR] Echec de la compilation.
         EXIT /B 1

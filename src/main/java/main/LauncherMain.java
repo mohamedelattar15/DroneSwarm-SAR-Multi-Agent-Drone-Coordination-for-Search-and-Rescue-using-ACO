@@ -1,9 +1,9 @@
 package main;
 
+import agents.protocol.MessageProtocol;
 import jade.core.Profile;
 import jade.core.ProfileImpl;
 import jade.core.Runtime;
-import jade.wrapper.AgentController;
 import jade.wrapper.ContainerController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,14 +41,14 @@ public class LauncherMain {
 
             // 1. EnvironmentAgent (grille, obstacles, phéromones)
             mainContainer.createNewAgent(
-                "Environment", "agents.EnvironmentAgent", new Object[]{config}
+                MessageProtocol.AGENT_ENVIRONMENT, "agents.EnvironmentAgent", new Object[]{config}
             ).start();
 
             Thread.sleep(500);
 
             // 2. BaseAgent (logistique)
             mainContainer.createNewAgent(
-                "Base", "agents.BaseAgent", new Object[]{config}
+                MessageProtocol.AGENT_BASE, "agents.BaseAgent", new Object[]{config}
             ).start();
 
             // 3. VictimAgents : créés par l'EnvironmentAgent (il connaît les positions)
@@ -56,7 +56,7 @@ public class LauncherMain {
             if (enableSniffer) {
                 log.info("Lancement du Sniffer JADE...");
                 mainContainer.createNewAgent(
-                    "sniffer", "jade.tools.sniffer.Sniffer",
+                    MessageProtocol.AGENT_SNIFFER, "jade.tools.sniffer.Sniffer",
                     new Object[]{"Environment;Base;Drone*;Victim*"}
                 ).start();
             }

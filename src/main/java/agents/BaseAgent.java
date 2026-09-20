@@ -1,5 +1,6 @@
 package agents;
 
+import agents.protocol.MessageProtocol;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.domain.DFService;
@@ -19,9 +20,9 @@ import utils.SimulationConfig;
 public class BaseAgent extends Agent {
 
     private static final Logger log = LoggerFactory.getLogger(BaseAgent.class);
-    public static final String SERVICE_NAME = "BaseService";
-    public static final String ONTOLOGY_DRONE_RETURNED = "DRONE_RETURNED";
-    public static final String ONTOLOGY_NEW_MISSION = "NEW_MISSION";
+    public static final String SERVICE_NAME = MessageProtocol.SERVICE_BASE;
+    public static final String ONTOLOGY_DRONE_RETURNED = MessageProtocol.ONTOLOGY_DRONE_RETURNED;
+    public static final String ONTOLOGY_NEW_MISSION = MessageProtocol.ONTOLOGY_NEW_MISSION;
 
     private SimulationConfig config;
     private int totalReturns = 0;
@@ -60,7 +61,7 @@ public class BaseAgent extends Agent {
             if (msg == null) { block(); return; }
 
             totalReturns++;
-            if ("VICTIM_RESCUED".equals(msg.getContent())) {
+            if (MessageProtocol.VICTIM_RESCUED.equals(msg.getContent())) {
                 victimsRescued++;
                 log.info("🚑 Victime secourue (total: {}/{})", victimsRescued, config.getVictimCount());
             }

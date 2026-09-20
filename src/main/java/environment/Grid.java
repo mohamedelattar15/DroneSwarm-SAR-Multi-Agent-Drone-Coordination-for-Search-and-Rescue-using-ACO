@@ -1,51 +1,52 @@
 package environment;
 
+import domain.pheromone.PheromoneField;
+import domain.victim.VictimRegistry;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import utils.SimulationConfig;
-import utils.Statistics;
 
 /**
  * Grille représentant la zone sinistrée.
- * Gère les phéromones, obstacles, positions des victimes et des drones.
+ * <p>
+ * <b>Rôle :</b> topologie (dimensions, obstacles, voisinage) et positions des drones.
+ * La gestion des phéromones est déléguée à {@link PheromoneField} et celle des
+ * victimes à {@link VictimRegistry} (source unique de vérité).
  */
 public class Grid {
 
     private final int width;
     private final int height;
-    private final double[][] pheromones;
     private final boolean[][] obstacles;
-    private final SimulationConfig config;
     private final Position nestPosition;
     private final List<Position> victimPositions;
     private final Map<String, Position> dronePositions;
-    private List<Position> bestPath = new ArrayList<>();
-    /** ✅ Liste de tous les chemins vers les victimes trouvées */
-    private final List<List<Position>> victimPaths = new ArrayList<>();
     private final Random random = new Random();
 
+    private final PheromoneField pheromones;
+    private final VictimRegistry victims;
+
     public Grid(SimulationConfig config) {
-        this.config = config;
         this.width = config.getGridWidth();
         this.height = config.getGridHeight();
-        this.pheromones = new double[width][height];
         this.obstacles = new boolean[width][height];
         this.nestPosition = new Position(config.getNestX(), config.getNestY());
         this.victimPositions = new ArrayList<>();
         this.dronePositions = new ConcurrentHashMap<>();
+        this.pheromones = new PheromoneField(width, height, config);
+        this.victims = new VictimRegistry();
 
-        // Générer des obstacles aléatoires
         generateObstacles(config.getObstacleCount());
-
-        // Placer les victimes aléatoirement
         generateVictims(config.getVictimCount());
     }
+
+    // -------------------------------------------------------------------------
+    // Génération
+    // -------------------------------------------------------------------------
 
     private void generateObstacles(int count) {
         int placed = 0;
@@ -55,8 +56,7 @@ public class Grid {
             Position p = new Position(x, y);
             if (!p.equals(nestPosition) && !obstacles[x][y]) {
                 obstacles[x][y] = true;
-                // Phéromone négative sur les obstacles
-                pheromones[x][y] = -5.0;
+                pheromones.set(p, -5.0);
                 placed++;
             }
         }
@@ -75,96 +75,12 @@ public class Grid {
         }
     }
 
-    public synchronized void resetPheromones() {
-        for (int i = 0; i < width; i++) {
-            for (int j = 0; j < height; j++) {
-                pheromones[i][j] = obstacles[i][j] ? -5.0 : 0.0;
-            }
-        }
-    }
-
-    public synchronized void addPheromone(Position pos, double amount) {
-        if (isValid(pos) && !obstacles[pos.x][pos.y]) {
-            pheromones[pos.x][pos.y] += amount;
-            if (pheromones[pos.x][pos.y] > 100) pheromones[pos.x][pos.y] = 100;
-        }
-    }
-
-    public synchronized void addNegativePheromone(Position pos, double amount) {
-        if (isValid(pos) && !obstacles[pos.x][pos.y]) {
-            pheromones[pos.x][pos.y] -= amount;
-            if (pheromones[pos.x][pos.y] < -20) pheromones[pos.x][pos.y] = -20;
-        }
-    }
-
-    private final Set<String> cachedPathSet = new HashSet<>();
-    private int cachedConfirmationCount = -1;
-
-    public synchronized void evaporateDifferentiated(List<Position> confirmedPath, int confirmationCount) {
-        double baseRho = utils.SimulationRuntimeControl.getEvaporationRate();
-        // ✅ Taux d'évaporation différenciés pilotés par la configuration
-        double rhoConfirmed = Math.min(baseRho * config.getRhoConfirmedFactor(), 0.01);
-        double rhoUnconfirmed = Math.min(baseRho * config.getRhoUnconfirmedFactor(), 0.1);
-
-        if (confirmedPath == null || confirmationCount < Statistics.MEDIUM_THRESHOLD) {
-            for (int i = 0; i < width; i++) {
-                for (int j = 0; j < height; j++) {
-                    double val = pheromones[i][j];
-                    if (val > 0.01) pheromones[i][j] = val * (1 - rhoUnconfirmed);
-                    else if (val < -0.01) pheromones[i][j] = Math.min(0, val + 0.1); // Les négatives remontent vers 0
-                }
-            }
-            return;
-        }
-
-        if (confirmationCount != cachedConfirmationCount) {
-            cachedPathSet.clear();
-            for (Position pos : confirmedPath) cachedPathSet.add(pos.x + "," + pos.y);
-            cachedConfirmationCount = confirmationCount;
-        }
-
-        for (int i = 0; i < width; i++) {
-            for (int j = 0; j < height; j++) {
-                double val = pheromones[i][j];
-                if (val > 0.01) {
-                    double rho = cachedPathSet.contains(i + "," + j) ? rhoConfirmed : rhoUnconfirmed;
-                    pheromones[i][j] = val * (1 - rho);
-                } else if (val < -0.01) {
-                    pheromones[i][j] = Math.min(0, val + 0.1);
-                }
-            }
-        }
-    }
-
-    public synchronized void applyEliteReinforcement(List<Position> bestPath, double factor) {
-        if (bestPath == null || factor <= 0) return;
-        double eliteAmount = 10.0 * 0.5 * factor;
-        for (Position pos : bestPath) {
-            addPheromone(pos, eliteAmount);
-        }
-    }
-
-    public synchronized void partialReset(List<Position> elitePath) {
-        Set<String> pathSet = new HashSet<>();
-        if (elitePath != null) {
-            for (Position pos : elitePath) pathSet.add(pos.x + "," + pos.y);
-        }
-        for (int i = 0; i < width; i++) {
-            for (int j = 0; j < height; j++) {
-                if (!pathSet.contains(i + "," + j) && !obstacles[i][j]) {
-                    pheromones[i][j] = 0.0;
-                }
-            }
-        }
-    }
-
-    public synchronized double getPheromone(Position pos) {
-        if (isValid(pos)) return pheromones[pos.x][pos.y];
-        return 0.0;
-    }
+    // -------------------------------------------------------------------------
+    // Topologie
+    // -------------------------------------------------------------------------
 
     public boolean isValid(Position pos) {
-        return pos.x >= 0 && pos.x < width && pos.y >= 0 && pos.y < height;
+        return pos != null && pos.x >= 0 && pos.x < width && pos.y >= 0 && pos.y < height;
     }
 
     public boolean isPassable(Position pos) {
@@ -175,105 +91,97 @@ public class Grid {
         return isValid(pos) && obstacles[pos.x][pos.y];
     }
 
+    /** Voisins praticables (8 directions). */
     public List<Position> getValidNeighbors(Position pos) {
         List<Position> neighbors = new ArrayList<>();
         int[][] directions = {{-1,-1},{-1,0},{-1,1},{0,-1},{0,1},{1,-1},{1,0},{1,1}};
         for (int[] dir : directions) {
-            Position newPos = new Position(pos.x + dir[0], pos.y + dir[1]);
-            if (isValid(newPos) && !obstacles[newPos.x][newPos.y]) {
-                neighbors.add(newPos);
+            Position candidate = new Position(pos.x + dir[0], pos.y + dir[1]);
+            if (isPassable(candidate)) {
+                neighbors.add(candidate);
             }
         }
         return neighbors;
     }
 
     public Position getNestPosition() { return nestPosition; }
-    public List<Position> getVictimPositions() { return new ArrayList<>(victimPositions); }
     public int getWidth() { return width; }
     public int getHeight() { return height; }
 
-    public synchronized double[][] getPheromoneMap() {
-        double[][] snapshot = new double[width][height];
-        for (int i = 0; i < width; i++) {
-            System.arraycopy(pheromones[i], 0, snapshot[i], 0, height);
-        }
-        return snapshot;
-    }
-
-    public boolean[][] getObstacleMap() {
-        boolean[][] copy = new boolean[width][height];
-        for (int i = 0; i < width; i++) {
-            System.arraycopy(obstacles[i], 0, copy[i], 0, height);
-        }
-        return copy;
-    }
+    // -------------------------------------------------------------------------
+    // Drones
+    // -------------------------------------------------------------------------
 
     public void updateDronePosition(String droneId, Position pos) {
         dronePositions.put(droneId, new Position(pos.x, pos.y));
     }
 
+    /** Snapshot défensif des positions de drones. */
     public Map<String, Position> getDronePositions() {
         return new HashMap<>(dronePositions);
     }
 
-    public synchronized void setBestPath(List<Position> path) {
-        this.bestPath = (path == null) ? new ArrayList<>() : new ArrayList<>(path);
+    // -------------------------------------------------------------------------
+    // Délégation : phéromones
+    // -------------------------------------------------------------------------
+
+    public PheromoneField getPheromones() { return pheromones; }
+
+    public double getPheromone(Position pos) { return pheromones.get(pos); }
+
+    public void addPheromone(Position pos, double amount) { pheromones.deposit(pos, amount); }
+
+    public void addNegativePheromone(Position pos, double amount) { pheromones.repel(pos, amount); }
+
+    public void evaporateDifferentiated(List<Position> confirmedPath, int confirmationCount) {
+        pheromones.evaporate(confirmedPath, confirmationCount);
     }
 
-    public synchronized List<Position> getBestPath() {
-        return new ArrayList<>(bestPath);
+    public void applyEliteReinforcement(List<Position> path, double factor) {
+        pheromones.reinforceElite(path, factor);
     }
 
-    /** ✅ Vérifie si une victime (par sa position) a déjà été trouvée */
-    public synchronized boolean isVictimAlreadyFound(Position victimPos) {
-        if (victimPos == null) return false;
-        for (List<Position> existingPath : victimPaths) {
-            Position last = existingPath.get(existingPath.size() - 1);
-            if (last.equals(victimPos)) return true;
+    public void partialReset(List<Position> elitePath) {
+        pheromones.resetExcept(elitePath);
+    }
+
+    public void resetPheromones() {
+        pheromones.reset(obstacles);
+    }
+
+    public double[][] getPheromoneMap() { return pheromones.snapshot(); }
+
+    // -------------------------------------------------------------------------
+    // Délégation : victimes
+    // -------------------------------------------------------------------------
+
+    public VictimRegistry getVictims() { return victims; }
+
+    public List<Position> getVictimPositions() { return new ArrayList<>(victimPositions); }
+
+    public boolean isVictimAlreadyFound(Position victimPos) { return victims.isFound(victimPos); }
+
+    public void addVictimPath(List<Position> path) { victims.record(path, 0.0); }
+
+    public List<List<Position>> getVictimPaths() { return victims.getAllPaths(); }
+
+    public int getVictimsFound() { return victims.getVictimCount(); }
+
+    /** Meilleur chemin courant (dérivé du registre des victimes). */
+    public List<Position> getBestPath() {
+        List<Position> best = victims.getBestPath();
+        return (best == null) ? new ArrayList<>() : best;
+    }
+
+    // -------------------------------------------------------------------------
+    // Carte des obstacles
+    // -------------------------------------------------------------------------
+
+    public boolean[][] getObstacleMap() {
+        boolean[][] copy = new boolean[width][height];
+        for (int x = 0; x < width; x++) {
+            System.arraycopy(obstacles[x], 0, copy[x], 0, height);
         }
-        return false;
-    }
-
-    /** ✅ Vérifie si une victime (dernière position du chemin) a déjà été trouvée */
-    public synchronized boolean isVictimAlreadyFound(List<Position> path) {
-        if (path == null || path.size() < 2) return false;
-        Position victimPos = path.get(path.size() - 1);
-        for (List<Position> existingPath : victimPaths) {
-            Position last = existingPath.get(existingPath.size() - 1);
-            if (last.equals(victimPos)) return true;
-        }
-        return false;
-    }
-
-    /** ✅ Remplace tous les chemins de victimes (depuis Statistics) */
-    public synchronized void setVictimPaths(List<List<Position>> paths) {
-        this.victimPaths.clear();
-        if (paths != null) {
-            for (List<Position> p : paths) {
-                if (p != null && p.size() >= 2) {
-                    this.victimPaths.add(new ArrayList<>(p));
-                }
-            }
-        }
-    }
-
-    /** ✅ Ajoute un chemin vers une victime (sans doublon) */
-    public synchronized void addVictimPath(List<Position> path) {
-        if (path == null || path.size() < 2) return;
-        Position victimPos = path.get(path.size() - 1);
-        for (List<Position> existingPath : victimPaths) {
-            Position last = existingPath.get(existingPath.size() - 1);
-            if (last.equals(victimPos)) return;
-        }
-        victimPaths.add(new ArrayList<>(path));
-    }
-
-    /** ✅ Retourne tous les chemins vers les victimes */
-    public synchronized List<List<Position>> getVictimPaths() {
-        return new ArrayList<>(victimPaths);
-    }
-
-    public synchronized int getVictimsFound() {
-        return victimPaths.size();
+        return copy;
     }
 }

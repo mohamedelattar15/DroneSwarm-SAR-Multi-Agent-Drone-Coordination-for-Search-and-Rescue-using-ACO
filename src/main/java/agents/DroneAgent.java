@@ -1,5 +1,8 @@
 package agents;
 
+import agents.protocol.MessageProtocol;
+import domain.aco.AntColonyOptimizer;
+import domain.drone.DroneModel;
 import environment.Grid;
 import environment.Position;
 import jade.core.AID;
@@ -23,40 +26,42 @@ import utils.Statistics;
 
 /**
  * Agent Drone autonome pour la recherche et le sauvetage.
- * Explore la zone sinistrée, détecte les victimes et dépose des phéromones.
+ * <p>
+ * <b>Rôle :</b> infrastructure JADE (behaviours, messagerie) et orchestration du pas.
+ * La logique métier est déléguée au domaine :
+ * {@link AntColonyOptimizer} (sélection ACO) et {@link DroneModel} (état/batterie).
  */
 public class DroneAgent extends Agent {
 
     private static final Logger log = LoggerFactory.getLogger(DroneAgent.class);
-    public static final String SERVICE_NAME = "DroneService";
+    public static final String SERVICE_NAME = MessageProtocol.SERVICE_DRONE;
 
-    public enum DroneState { EXPLORING, RETURNING, IDLE, RETURNING_EMPTY }
+    /** Force du biais directionnel. */
+    private static final double DIRECTIONAL_BIAS_STRENGTH = 2.0;
+    /** Poids de la répulsion entre drones. */
+    private static final double DRONE_REPULSION_WEIGHT = 0.3;
+    /** Rayon de répulsion entre drones. */
+    private static final int REPULSION_RADIUS = 8;
+    /** Fenêtre d'anti-boucle (nombre de pas récents). */
+    private static final int RECENT_WINDOW = 12;
 
-    private Position position;
-    private final List<Position> path = new ArrayList<>();
+    private static final AtomicInteger droneCount = new AtomicInteger(0);
+
     private Grid grid;
     private Statistics stats;
     private SimulationConfig config;
+    private final AntColonyOptimizer aco = new AntColonyOptimizer();
+    private DroneModel model;
+    private final Random random = new Random();
+
+    private Position position;
+    private final List<Position> path = new ArrayList<>();
     private Position lastDirection;
-    private boolean hasFoundVictim;
+    private Position preferredDirection;
     private double totalDistance;
-    private DroneState state = DroneState.EXPLORING;
-    private static final AtomicInteger droneCount = new AtomicInteger(0);
     private int droneId;
-    private int explorationBoostTicks;
-    private int stepsSinceLastFind;
-    private int stepsSinceLastReturn;
     private AID environmentAID;
     private AID baseAID;
-    private final Random random = new Random();
-    /** Biais directionnel : pousse le drone vers une zone spécifique */
-    private Position preferredDirection;
-    /** Force du biais directionnel (0.0 = aucun, 1.0 = max) */
-    private static final double DIRECTIONAL_BIAS_STRENGTH = 2.0;
-    /** Poids de la répulsion entre drones */
-    private static final double DRONE_REPULSION_WEIGHT = 0.3;
-    /** Rayon de répulsion entre drones */
-    private static final int REPULSION_RADIUS = 8;
 
     @Override
     protected void setup() {
@@ -66,21 +71,19 @@ public class DroneAgent extends Agent {
             doDelete();
             return;
         }
-        this.grid   = (Grid)             args[0];
-        this.stats  = (Statistics)       args[1];
+        this.grid = (Grid) args[0];
+        this.stats = (Statistics) args[1];
         this.config = (SimulationConfig) args[2];
+        this.model = new DroneModel(config.getMaxDroneSteps());
 
         this.position = new Position(grid.getNestPosition().x, grid.getNestPosition().y);
         this.path.add(position);
         this.droneId = droneCount.incrementAndGet();
-
-        // ✅ Biais directionnel : chaque drone a une direction préférée
-        // pour couvrir des zones différentes dès le départ
         this.preferredDirection = computePreferredDirection();
 
         registerWithDF();
-        this.environmentAID = lookupAgent(EnvironmentAgent.SERVICE_NAME);
-        this.baseAID        = lookupAgent(BaseAgent.SERVICE_NAME);
+        this.environmentAID = lookupAgent(MessageProtocol.SERVICE_ENVIRONMENT);
+        this.baseAID = lookupAgent(MessageProtocol.SERVICE_BASE);
 
         grid.updateDronePosition(getLocalName(), position);
         log.debug("Drone #{} prêt à la base {}, direction préférée: ({},{})",
@@ -111,9 +114,7 @@ public class DroneAgent extends Agent {
         template.addServices(sd);
         try {
             DFAgentDescription[] result = DFService.search(this, template);
-            if (result.length > 0) {
-                return result[0].getName();
-            }
+            if (result.length > 0) return result[0].getName();
         } catch (FIPAException e) {
             log.warn("Drone #{}: Recherche DF échouée {}", droneId, serviceName);
         }
@@ -121,94 +122,73 @@ public class DroneAgent extends Agent {
     }
 
     // -------------------------------------------------------------------------
-    // Behaviour : déplacement périodique
+    // Behaviour : cycle de déplacement
     // -------------------------------------------------------------------------
 
     private class DroneMoveBehaviour extends TickerBehaviour {
 
-        public DroneMoveBehaviour(Agent a, long period) {
+        DroneMoveBehaviour(Agent a, long period) {
             super(a, period);
         }
 
         @Override
         protected void onTick() {
-            if (SimulationRuntimeControl.isPaused()) {
-                return;
-            }
-            if (explorationBoostTicks > 0) {
-                explorationBoostTicks--;
-            }
+            if (SimulationRuntimeControl.isPaused()) return;
 
-            stepsSinceLastFind++;
-            stepsSinceLastReturn++;
+            model.tick();
 
-            // ✅ Mission terminée : toutes les victimes sont trouvées → le drone s'arrête
             if (allVictimsFound()) {
-                if (state != DroneState.IDLE) {
+                if (!model.getState().equals(DroneModel.State.IDLE)) {
                     log.info("Drone #{}: Toutes les victimes sont trouvées → arrêt", droneId);
-                    state = DroneState.IDLE;
+                    model.onMissionComplete();
                 }
                 return;
             }
 
-            // Timeout d'exploration : batterie faible → retour à la base
-            if (state == DroneState.EXPLORING
-                    && stepsSinceLastFind > config.getMaxDroneSteps()) {
+            if (model.shouldReturnForBattery()) {
                 log.debug("Drone #{}: Batterie faible, retour à la base", droneId);
-                state = DroneState.RETURNING_EMPTY;
-                stepsSinceLastFind = 0;
+                model.onBatteryLow();
             }
-
-            // Timeout de retour : sécurité anti-blocage
-            if ((state == DroneState.RETURNING || state == DroneState.RETURNING_EMPTY)
-                    && stepsSinceLastReturn > config.getMaxDroneSteps()) {
+            if (model.isLost()) {
                 log.warn("Drone #{}: Perdu, réinitialisation", droneId);
-                state = DroneState.IDLE;
-                stepsSinceLastReturn = 0;
+                model.onLost();
             }
-
-            // Arrivée à la base
-            if ((state == DroneState.RETURNING || state == DroneState.RETURNING_EMPTY)
-                    && position.equals(grid.getNestPosition())) {
-
-                if (hasFoundVictim && baseAID != null) {
-                    ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-                    msg.addReceiver(baseAID);
-                    msg.setOntology(BaseAgent.ONTOLOGY_DRONE_RETURNED);
-                    msg.setContent("VICTIM_RESCUED");
-                    send(msg);
-                }
-
-                path.clear();
-                path.add(position);
-                hasFoundVictim       = false;
-                state                = DroneState.IDLE;
-                totalDistance        = 0;
-                lastDirection        = null;
-                stepsSinceLastFind   = 0;
-                stepsSinceLastReturn = 0;
+            if (model.isReturning() && position.equals(grid.getNestPosition())) {
+                onArrivedAtBase();
                 return;
             }
 
-            // Fin de l'IDLE → nouveau départ
-            if (state == DroneState.IDLE) {
-                state = DroneState.EXPLORING;
-            }
+            model.onDeparture();
 
-            // ✅ 1) Détection AVANT déplacement (couvre la case courante et son rayon)
+            // Détection avant et après déplacement (couvre les cases traversées)
             checkVictimDetection();
-
             moveDrone();
-
-            // ✅ 2) Détection APRÈS déplacement (couvre la nouvelle case et son rayon)
             checkVictimDetection();
         }
     }
 
+    private void onArrivedAtBase() {
+        if (model.getState().equals(DroneModel.State.RETURNING) && baseAID != null) {
+            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+            msg.addReceiver(baseAID);
+            msg.setOntology(MessageProtocol.ONTOLOGY_DRONE_RETURNED);
+            msg.setContent(MessageProtocol.VICTIM_RESCUED);
+            send(msg);
+        }
+        path.clear();
+        path.add(position);
+        model.onArrivedAtBase();
+        totalDistance = 0;
+        lastDirection = null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Détection
+    // -------------------------------------------------------------------------
+
     /**
-     * ✅ Détection par rayon, active dans TOUS les états (y compris RETURNING).
-     * Si une victime non encore trouvée est à portée, elle est enregistrée et signalée.
-     * Le retour à la base n'est pas interrompu : le drone continue de chercher en rentrant.
+     * Détection par rayon, active dans tous les états (y compris RETURNING).
+     * Le retour à la base n'est pas interrompu : le drone continue de chercher.
      */
     private void checkVictimDetection() {
         Position victimPos = getNearestUndiscoveredVictim();
@@ -217,40 +197,34 @@ public class DroneAgent extends Agent {
         int dist = position.manhattanTo(victimPos);
         if (dist > config.getPerceptionRadius()) return;
 
-        // Marquer la victime comme trouvée pour éviter les doublons
         grid.addVictimPath(buildPathTo(victimPos));
-        stepsSinceLastFind = 0;
+        model.onVictimFound();
         log.info("Drone #{}: victime détectée à {} (distance {}) [état: {}]",
-                droneId, victimPos, dist, state);
+                droneId, victimPos, dist, model.getState());
 
-        // ✅ Déposer les phéromones sur le chemin parcouru (renforce le trajet vers la victime)
         depositPheromones();
 
-        // Enregistrer le chemin auprès des statistiques (validation collective)
         List<Position> detectedPath = buildPathTo(victimPos);
         double detectedDistance = computePathDistance(detectedPath);
         Statistics.PathUpdate update = stats.recordAntPath(detectedPath, detectedDistance);
 
-        // Notifier l'environnement (une seule fois par victime détectée)
         if (environmentAID != null) {
             ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
             msg.addReceiver(environmentAID);
-            msg.setConversationId("drone-found-victim");
-            msg.setContent("VICTIM_FOUND:" + update.getReinforcementFactor() + ":"
-                    + update.getBestPathSignature() + ":" + victimPos.x + "," + victimPos.y);
+            msg.setConversationId(MessageProtocol.CONV_VICTIM_FOUND);
+            msg.setContent(MessageProtocol.VICTIM_FOUND + ":" + update.getReinforcementFactor()
+                    + ":" + update.getBestPathSignature() + ":" + victimPos.x + "," + victimPos.y);
             send(msg);
             log.info("[SEND] Drone #{} → Environment (victime à {}, renfort {}%)",
                     droneId, victimPos, Math.round(update.getReinforcementFactor() * 100));
         }
 
-        // Notifier l'agent victime concerné
         notifyVictimAgent(victimPos);
+    }
 
-        // Si le drone explorait, il rentre désormais à la base (comportement d'origine)
-        if (state == DroneState.EXPLORING) {
-            hasFoundVictim = true;
-            state = DroneState.RETURNING;
-        }
+    /** Vrai si toutes les victimes de la grille ont été trouvées. */
+    private boolean allVictimsFound() {
+        return grid.getVictimsFound() >= grid.getVictimPositions().size();
     }
 
     /** Construit le chemin courant complété par la position de la victime. */
@@ -262,74 +236,66 @@ public class DroneAgent extends Agent {
         return detected;
     }
 
-    /** ✅ Vrai si toutes les victimes de la grille ont été trouvées. */
-    private boolean allVictimsFound() {
-        return grid.getVictimsFound() >= grid.getVictimPositions().size();
+    // -------------------------------------------------------------------------
+    // Déplacement
+    // -------------------------------------------------------------------------
+
+    private void moveDrone() {
+        Position nextPos;
+        if (model.isReturning()) {
+            if (path.size() <= 1) return;
+            nextPos = path.get(path.size() - 2);
+            path.remove(path.size() - 1);
+        } else {
+            nextPos = chooseNextPosition();
+        }
+        if (nextPos == null) return;
+
+        totalDistance += position.distanceTo(nextPos);
+        lastDirection = new Position(nextPos.x - position.x, nextPos.y - position.y);
+        position = nextPos;
+
+        if (model.isExploring()) {
+            path.add(new Position(position.x, position.y));
+        }
+        grid.updateDronePosition(getLocalName(), position);
+        grid.addNegativePheromone(position, 0.1);
     }
 
-    /**
-     * Envoie VICTIM_DETECTED à l'agent VictimAgent le plus proche de la victime détectée.
-     * Si aucun agent victime n'est trouvé, la détection est simplement ignorée.
-     */
-    private void notifyVictimAgent(Position victimPos) {
-        if (victimPos == null) return;
-        AID victimAID = lookupNearestVictimAgent(victimPos);
-        if (victimAID == null) {
-            log.debug("Drone #{}: aucun VictimAgent trouvé pour {}", droneId, victimPos);
-            return;
-        }
-        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-        msg.addReceiver(victimAID);
-        msg.setOntology(VictimAgent.ONTOLOGY_VICTIM_DETECTED);
-        msg.setContent("victim_detected:" + victimPos.x + "," + victimPos.y);
-        send(msg);
-        log.info("[SEND] Drone #{} → {} (détection en {})",
-                droneId, victimAID.getLocalName(), victimPos);
+    private Position chooseNextPosition() {
+        List<Position> neighbors = grid.getValidNeighbors(position);
+        if (neighbors.isEmpty()) return null;
+
+        Position previous = (path.size() > 1) ? path.get(path.size() - 2) : null;
+        List<Position> otherDrones = new ArrayList<>(grid.getDronePositions().values());
+        List<Position> undiscovered = undiscoveredVictims();
+
+        AntColonyOptimizer.StepContext ctx = new AntColonyOptimizer.StepContext(
+                position, lastDirection, previous, preferredDirection, otherDrones,
+                path, undiscovered,
+                SimulationRuntimeControl.getAlpha(),
+                SimulationRuntimeControl.getBeta(),
+                SimulationRuntimeControl.getExplorationRate(),
+                config.getVisitedPathPenalty(),
+                config.getBacktrackPenalty(),
+                DIRECTIONAL_BIAS_STRENGTH,
+                DRONE_REPULSION_WEIGHT,
+                REPULSION_RADIUS,
+                RECENT_WINDOW);
+
+        return aco.selectNext(neighbors, grid.getPheromones(), ctx);
     }
 
-    /**
-     * Recherche l'agent victime dont la position (encodée dans son nom) est la plus proche.
-     * Le nom des VictimAgent est de la forme "Victim_<x>_<y>".
-     */
-    private AID lookupNearestVictimAgent(Position victimPos) {
-        DFAgentDescription template = new DFAgentDescription();
-        ServiceDescription sd = new ServiceDescription();
-        sd.setType(VictimAgent.SERVICE_NAME);
-        template.addServices(sd);
-        try {
-            DFAgentDescription[] results = DFService.search(this, template);
-            AID nearest = null;
-            int bestDist = Integer.MAX_VALUE;
-            for (DFAgentDescription dfd : results) {
-                Position p = parseVictimPosition(dfd.getName().getLocalName());
-                if (p == null) continue;
-                int dist = Math.abs(p.x - victimPos.x) + Math.abs(p.y - victimPos.y);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    nearest = dfd.getName();
-                }
-            }
-            return nearest;
-        } catch (FIPAException e) {
-            log.warn("Drone #{}: recherche VictimAgent échouée", droneId);
-            return null;
+    private List<Position> undiscoveredVictims() {
+        List<Position> result = new ArrayList<>();
+        for (Position victim : grid.getVictimPositions()) {
+            if (!grid.isVictimAlreadyFound(victim)) result.add(victim);
         }
-    }
-
-    /** Extrait (x,y) depuis un nom "Victim_<x>_<y>" ; retourne null si invalide. */
-    private Position parseVictimPosition(String localName) {
-        if (localName == null || !localName.startsWith("Victim_")) return null;
-        String[] parts = localName.split("_");
-        if (parts.length < 3) return null;
-        try {
-            return new Position(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        return result;
     }
 
     // -------------------------------------------------------------------------
-    // Behaviour : écoute des retours de l'environnement
+    // Écoute des retours de l'environnement
     // -------------------------------------------------------------------------
 
     private class EnvironmentFeedbackListener extends CyclicBehaviour {
@@ -342,20 +308,17 @@ public class DroneAgent extends Agent {
                 return;
             }
             String content = msg.getContent();
-            if (content == null) {
-                return;
-            }
+            if (content == null) return;
 
-            if (content.startsWith("PATH_ACCEPTED")) {
+            if (content.startsWith(MessageProtocol.PATH_ACCEPTED)) {
                 log.debug("[RECV] Drone #{} chemin accepté", droneId);
-            } else if (content.startsWith("PATH_REJECTED")) {
-                explorationBoostTicks = Math.max(explorationBoostTicks, config.getExplorationBoostTicks());
+            } else if (content.startsWith(MessageProtocol.PATH_REJECTED)) {
+                model.boostExploration(config.getExplorationBoostTicks());
                 log.debug("[RECV] Drone #{} chemin rejeté, exploration boostée", droneId);
-            } else if (content.startsWith("DIVERSIFY")) {
-                explorationBoostTicks = Math.max(explorationBoostTicks, config.getDiversificationBoostTicks());
+            } else if (content.startsWith(MessageProtocol.DIVERSIFY)) {
+                model.boostExploration(config.getDiversificationBoostTicks());
                 log.debug("[RECV] Drone #{} diversification", droneId);
-            } else if (content.startsWith("victim_confirmed")) {
-                // ✅ Confirmation reçue de l'agent victime : la détection est validée
+            } else if (content.startsWith(MessageProtocol.VICTIM_CONFIRMED)) {
                 log.info("[RECV] Drone #{} : victime confirmée par {} ({})",
                         droneId, msg.getSender().getLocalName(), content);
             }
@@ -363,211 +326,85 @@ public class DroneAgent extends Agent {
     }
 
     // -------------------------------------------------------------------------
-    // Déplacement
+    // Messagerie victime
     // -------------------------------------------------------------------------
 
-    private void moveDrone() {
-        Position nextPos;
-
-        if (state == DroneState.RETURNING || state == DroneState.RETURNING_EMPTY) {
-            if (path.size() > 1) {
-                nextPos = path.get(path.size() - 2);
-                path.remove(path.size() - 1);
-            } else {
-                return;
-            }
-        } else {
-            nextPos = chooseNextPosition();
+    /** Envoie VICTIM_DETECTED à l'agent VictimAgent le plus proche. */
+    private void notifyVictimAgent(Position victimPos) {
+        if (victimPos == null) return;
+        AID victimAID = lookupNearestVictimAgent(victimPos);
+        if (victimAID == null) {
+            log.debug("Drone #{}: aucun VictimAgent trouvé pour {}", droneId, victimPos);
+            return;
         }
-
-        if (nextPos != null) {
-            double dist = position.distanceTo(nextPos);
-            totalDistance += dist;
-            lastDirection = new Position(nextPos.x - position.x, nextPos.y - position.y);
-            position = nextPos;
-
-            if (state == DroneState.EXPLORING) {
-                path.add(new Position(position.x, position.y));
-            }
-            grid.updateDronePosition(getLocalName(), position);
-            // ✅ Déposer une phéromone de présence légère pour éviter
-            // que d'autres drones ne viennent dans la même zone
-            grid.addNegativePheromone(position, 0.1);
-        }
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(victimAID);
+        msg.setOntology(MessageProtocol.ONTOLOGY_VICTIM_DETECTED);
+        msg.setContent(MessageProtocol.VICTIM_DETECTED + ":" + victimPos.x + "," + victimPos.y);
+        send(msg);
+        log.info("[SEND] Drone #{} → {} (détection en {})",
+                droneId, victimAID.getLocalName(), victimPos);
     }
 
-    private Position chooseNextPosition() {
-        List<Position> neighbors = grid.getValidNeighbors(position);
-        if (neighbors.isEmpty()) {
-            return null;
-        }
-
-        Position previousPosition = path.size() > 1 ? path.get(path.size() - 2) : null;
-
-        List<Position> filtered = new ArrayList<>(neighbors);
-        if (previousPosition != null && filtered.size() > 1) {
-            filtered.removeIf(n -> n.equals(previousPosition));
-        }
-        if (filtered.isEmpty()) {
-            filtered = neighbors;
-        }
-
-        double explorationRate = SimulationRuntimeControl.getExplorationRate();
-        if (random.nextDouble() < explorationRate) {
-            return filtered.get(random.nextInt(filtered.size()));
-        }
-
-        double[] probs = new double[filtered.size()];
-        double sum = 0;
-        double alpha = SimulationRuntimeControl.getAlpha();
-        double beta  = SimulationRuntimeControl.getBeta();
-
-        // ✅ Un seul snapshot des positions de drones par pas (au lieu d'une copie par voisin)
-        List<Position> otherDrones = new ArrayList<>(grid.getDronePositions().values());
-
-        for (int i = 0; i < filtered.size(); i++) {
-            Position neighbor = filtered.get(i);
-            double pheromone = grid.getPheromone(neighbor);
-
-            // Zones dangereuses (phéromone négative) traitées comme neutres
-            if (pheromone < 0) {
-                pheromone = 0.0;
-            }
-
-            double persistence = 1.0;
-            if (lastDirection != null) {
-                int dx = neighbor.x - position.x;
-                int dy = neighbor.y - position.y;
-                if (dx == lastDirection.x && dy == lastDirection.y) {
-                    persistence = 3.0;
+    /** Recherche l'agent victime le plus proche (position encodée dans son nom). */
+    private AID lookupNearestVictimAgent(Position victimPos) {
+        DFAgentDescription template = new DFAgentDescription();
+        ServiceDescription sd = new ServiceDescription();
+        sd.setType(MessageProtocol.SERVICE_VICTIM);
+        template.addServices(sd);
+        try {
+            DFAgentDescription[] results = DFService.search(this, template);
+            AID nearest = null;
+            int bestDist = Integer.MAX_VALUE;
+            for (DFAgentDescription dfd : results) {
+                Position p = parseVictimPosition(dfd.getName().getLocalName());
+                if (p == null) continue;
+                int dist = p.manhattanTo(victimPos);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    nearest = dfd.getName();
                 }
             }
-
-            double victimAttraction = victimAttraction(neighbor);
-            double visitPenalty     = hasVisitedRecently(neighbor) ? config.getVisitedPathPenalty() : 1.0;
-            double backtrackPenalty = neighbor.equals(previousPosition) ? config.getBacktrackPenalty() : 1.0;
-            // ✅ Biais directionnel : pousse vers la zone préférée
-            double directionalBias = computeDirectionalBias(neighbor);
-            // ✅ Répulsion entre drones : évite les zones avec d'autres drones
-            double repulsion = computeDroneRepulsion(neighbor, otherDrones);
-
-            probs[i] = Math.pow(pheromone + 1.0, alpha)
-                     * Math.pow(victimAttraction, beta)
-                     * persistence
-                     * visitPenalty
-                     * backtrackPenalty
-                     * directionalBias
-                     * repulsion;
-            sum += probs[i];
+            return nearest;
+        } catch (FIPAException e) {
+            log.warn("Drone #{}: recherche VictimAgent échouée", droneId);
+            return null;
         }
-
-        double r = random.nextDouble() * sum;
-        double cumulative = 0;
-        for (int i = 0; i < probs.length; i++) {
-            cumulative += probs[i];
-            if (r <= cumulative) {
-                return filtered.get(i);
-            }
-        }
-        return filtered.get(filtered.size() - 1);
     }
 
-    // -------------------------------------------------------------------------
-    // Biais directionnel et répulsion
-    // -------------------------------------------------------------------------
-
-    /**
-     * Calcule une direction préférée pour ce drone,
-     * afin que chaque drone explore une zone différente.
-     * Les directions sont réparties uniformément autour de la base.
-     */
-    private Position computePreferredDirection() {
-        int totalDrones = config.getDroneCount();
-        // Répartir les drones en 8 directions principales (N, NE, E, SE, S, SO, O, NO)
-        int[][] directions = {
-            {0, -1}, {1, -1}, {1, 0}, {1, 1},
-            {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}
-        };
-        // Chaque drone prend une direction selon son index
-        int dirIndex = (droneId - 1) % directions.length;
-        int dx = directions[dirIndex][0];
-        int dy = directions[dirIndex][1];
-        // Étendre la direction pour couvrir une grande zone
-        int range = Math.max(config.getGridWidth(), config.getGridHeight()) / 2;
-        return new Position(dx * range, dy * range);
-    }
-
-    /**
-     * Calcule un facteur de répulsion basé sur la proximité des autres drones.
-     * Plus il y a de drones proches, plus la répulsion est forte.
-     * @param otherDrones snapshot des positions des drones (calculé une fois par pas)
-     */
-    private double computeDroneRepulsion(Position neighbor, List<Position> otherDrones) {
-        double repulsion = 0.0;
-        for (Position otherPos : otherDrones) {
-            int dist = Math.abs(neighbor.x - otherPos.x) + Math.abs(neighbor.y - otherPos.y);
-            if (dist > 0 && dist <= REPULSION_RADIUS) {
-                // Répulsion inversement proportionnelle à la distance
-                repulsion += (REPULSION_RADIUS - dist + 1.0) / REPULSION_RADIUS;
-            }
+    private Position parseVictimPosition(String localName) {
+        if (localName == null || !localName.startsWith(MessageProtocol.PREFIX_VICTIM)) return null;
+        String[] parts = localName.split("_");
+        if (parts.length < 3) return null;
+        try {
+            return new Position(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
+        } catch (NumberFormatException e) {
+            return null;
         }
-        return 1.0 - (repulsion * DRONE_REPULSION_WEIGHT);
-    }
-
-    /**
-     * Calcule l'attraction vers la direction préférée du drone.
-     * Plus le voisin est dans la direction préférée, plus l'attraction est forte.
-     */
-    private double computeDirectionalBias(Position neighbor) {
-        if (preferredDirection == null) return 1.0;
-        int dx = neighbor.x - grid.getNestPosition().x;
-        int dy = neighbor.y - grid.getNestPosition().y;
-        // Produit scalaire entre la direction du voisin et la direction préférée
-        double dot = dx * preferredDirection.x + dy * preferredDirection.y;
-        if (dot <= 0) return 0.5; // Direction opposée : pénalisé
-        // Normaliser
-        double norm = Math.sqrt(dx*dx + dy*dy) * Math.sqrt(preferredDirection.x*preferredDirection.x + preferredDirection.y*preferredDirection.y);
-        if (norm == 0) return 1.0;
-        double cosAngle = dot / norm;
-        return 1.0 + Math.max(0, cosAngle) * DIRECTIONAL_BIAS_STRENGTH;
     }
 
     // -------------------------------------------------------------------------
     // Utilitaires
     // -------------------------------------------------------------------------
 
-    private double victimAttraction(Position neighbor) {
-        double maxAttraction = 0;
-        for (Position victim : grid.getVictimPositions()) {
-            // Ignorer les victimes déjà trouvées
-            if (grid.isVictimAlreadyFound(victim)) {
-                continue;
-            }
-            if (neighbor.equals(victim)) {
-                return 100.0;
-            }
-            int dist = Math.abs(neighbor.x - victim.x) + Math.abs(neighbor.y - victim.y);
-            double attraction = 1.0 + (50.0 / (dist + 1));
-            if (attraction > maxAttraction) {
-                maxAttraction = attraction;
-            }
-        }
-        return maxAttraction;
+    /** Direction préférée répartie uniformément autour de la base. */
+    private Position computePreferredDirection() {
+        int[][] directions = {
+            {0, -1}, {1, -1}, {1, 0}, {1, 1},
+            {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}
+        };
+        int dirIndex = (droneId - 1) % directions.length;
+        int range = Math.max(config.getGridWidth(), config.getGridHeight()) / 2;
+        return new Position(directions[dirIndex][0] * range, directions[dirIndex][1] * range);
     }
 
-    /**
-     * ✅ Retourne la victime NON ENCORE TROUVÉE la plus proche à portée de perception,
-     * ou null si aucune victime non trouvée n'est dans le rayon de perception.
-     */
+    /** Victime non découverte la plus proche dans le rayon de perception. */
     private Position getNearestUndiscoveredVictim() {
         Position nearest = null;
         int minDist = Integer.MAX_VALUE;
         int radius = config.getPerceptionRadius();
         for (Position victim : grid.getVictimPositions()) {
-            // ✅ Ignorer les victimes déjà trouvées (par un autre drone notamment)
-            if (grid.isVictimAlreadyFound(victim)) {
-                continue;
-            }
+            if (grid.isVictimAlreadyFound(victim)) continue;
             int dist = position.manhattanTo(victim);
             if (dist <= radius && dist < minDist) {
                 minDist = dist;
@@ -577,23 +414,11 @@ public class DroneAgent extends Agent {
         return nearest;
     }
 
-    private boolean hasVisitedRecently(Position candidate) {
-        int start = Math.max(0, path.size() - 12);
-        for (int i = start; i < path.size(); i++) {
-            if (path.get(i).equals(candidate)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void depositPheromones() {
         double amount = 100.0 / (1.0 + totalDistance);
         for (Position pos : path) {
             grid.addPheromone(pos, amount);
         }
-        // Déposer des phéromones négatives sur les victimes déjà trouvées
-        // pour éviter que les drones retournent vers elles
         for (Position victim : grid.getVictimPositions()) {
             if (grid.isVictimAlreadyFound(victim)) {
                 grid.addNegativePheromone(victim, 2.0);
@@ -611,13 +436,13 @@ public class DroneAgent extends Agent {
         return dist;
     }
 
-    // -------------------------------------------------------------------------
-
     @Override
     protected void takeDown() {
         try {
             DFService.deregister(this);
-        } catch (FIPAException ignored) {}
+        } catch (FIPAException ignored) {
+            // rien à faire
+        }
         log.debug("Drone #{} terminé", droneId);
     }
 }

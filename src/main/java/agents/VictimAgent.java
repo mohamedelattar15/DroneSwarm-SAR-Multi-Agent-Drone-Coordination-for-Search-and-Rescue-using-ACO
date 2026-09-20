@@ -1,5 +1,6 @@
 package agents;
 
+import agents.protocol.MessageProtocol;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.domain.DFService;
@@ -18,9 +19,9 @@ import org.slf4j.LoggerFactory;
 public class VictimAgent extends Agent {
 
     private static final Logger log = LoggerFactory.getLogger(VictimAgent.class);
-    public static final String SERVICE_NAME = "VictimService";
-    public static final String ONTOLOGY_VICTIM_DETECTED = "VICTIM_DETECTED";
-    public static final String ONTOLOGY_VICTIM_CONFIRMED = "VICTIM_CONFIRMED";
+    public static final String SERVICE_NAME = MessageProtocol.SERVICE_VICTIM;
+    public static final String ONTOLOGY_VICTIM_DETECTED = MessageProtocol.ONTOLOGY_VICTIM_DETECTED;
+    public static final String ONTOLOGY_VICTIM_CONFIRMED = MessageProtocol.ONTOLOGY_VICTIM_CONFIRMED;
 
     private int detectionCount = 0;
 
@@ -59,7 +60,7 @@ public class VictimAgent extends Agent {
             ACLMessage reply = msg.createReply();
             reply.setPerformative(ACLMessage.INFORM);
             reply.setOntology(ONTOLOGY_VICTIM_CONFIRMED);
-            reply.setContent("victim_confirmed:" + detectionCount);
+            reply.setContent(MessageProtocol.VICTIM_CONFIRMED + ":" + detectionCount);
             myAgent.send(reply);
         }
     }
