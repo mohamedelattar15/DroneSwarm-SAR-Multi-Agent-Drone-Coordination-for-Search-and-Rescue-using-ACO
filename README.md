@@ -1,343 +1,553 @@
 # 🚁 DroneSwarm-SAR
 
-**Multi-Agent Drone Coordination for Search and Rescue using ACO**
+**Coordination multi-agents de drones pour la recherche et le sauvetage (SAR) par optimisation par colonies de fourmis (ACO)**
 
-![Java](https://img.shields.io/badge/Java-17-ED8B00?style=for-the-badge&logo=java&logoColor=white)
+![Java](https://img.shields.io/badge/Java-17-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)
 ![JADE](https://img.shields.io/badge/Framework-JADE%204.6-blue?style=for-the-badge)
-![Maven](https://img.shields.io/badge/Build-Maven-C71A36?style=for-the-badge&logo=apachemaven)
+![Maven](https://img.shields.io/badge/Build-Maven-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
----
-
-## 📋 Table des Matières
-
-- [🚁 DroneSwarm-SAR](#-dronesswarm-sar)
-  - [📋 Table des Matières](#-table-des-matières)
-  - [1. Problématique](#1-problématique)
-    - [1.1 Contexte](#11-contexte)
-    - [1.2 Constats Alarmants](#12-constats-alarmants)
-    - [1.3 Limites des Approches Actuelles](#13-limites-des-approches-actuelles)
-  - [2. Solution Proposée](#2-solution-proposée)
-    - [2.1 Concept](#21-concept)
-    - [2.2 Analogie ACO ↔ Sauvetage](#22-analogie-aco--sauvetage)
-    - [2.3 Architecture Multi-Agents](#23-architecture-multi-agents)
-  - [3. Objectifs](#3-objectifs)
-    - [3.1 Objectif Principal](#31-objectif-principal)
-    - [3.2 Objectifs Spécifiques](#32-objectifs-spécifiques)
-    - [3.3 Indicateurs de Performance (KPI)](#33-indicateurs-de-performance-kpi)
-  - [4. Verrous Scientifiques et Techniques](#4-verrous-scientifiques-et-techniques)
-    - [4.1 Verrou 1 — Coordination Décentralisée](#41-verrou-1--coordination-décentralisée)
-    - [4.2 Verrou 2 — Gestion de l'Incertitude](#42-verrou-2--gestion-de-lincertitude)
-    - [4.3 Verrou 3 — Contraintes Temps Réel](#43-verrou-3--contraintes-temps-réel)
-    - [4.4 Verrou 4 — Passage à l'Échelle](#44-verrou-4--passage-à-léchelle)
-  - [5. Innovations par Rapport à l'ACO Classique](#5-innovations-par-rapport-à-laco-classique)
-  - [6. Scénario d'Utilisation](#6-scénario-dutilisation)
-    - [6.1 Phase 1 — Déploiement](#61-phase-1--déploiement)
-    - [6.2 Phase 2 — Exploration](#62-phase-2--exploration)
-    - [6.3 Phase 3 — Détection](#63-phase-3--détection)
-    - [6.4 Phase 4 — Évacuation](#64-phase-4--évacuation)
-  - [7. Travaux Connexes](#7-travaux-connexes)
-  - [8. Structure du Projet](#8-structure-du-projet)
-  - [9. Références](#9-références)
+> Un essaim de drones autonomes qui **explorent une zone sinistrée**, **détectent les victimes**, **valident collectivement** l'information via des phéromones virtuelles, et **optimisent les trajets de secours** — le tout de manière **100 % décentralisée**.
 
 ---
 
-## 1. Problématique
+## 📋 Table des matières
 
-### 1.1 Contexte
+- [🎯 Vue d'ensemble](#-vue-densemble)
+- [🧠 Comment ça marche ?](#-comment-ça-marche-)
+  - [1. Le principe ACO](#1-le-principe-aco)
+  - [2. La stigmergie](#2-la-stigmergie)
+  - [3. Le cycle d'un drone](#3-le-cycle-dun-drone)
+- [🔍 Que se passe-t-il quand un drone trouve une victime ?](#-que-se-passe-t-il-quand-un-drone-trouve-une-victime-)
+- [🤝 Collaboration entre agents](#-collaboration-entre-agents)
+  - [Protocole de communication](#protocole-de-communication)
+  - [Validation collective](#validation-collective)
+- [🏛️ Architecture](#️-architecture)
+  - [Vue en couches](#vue-en-couches)
+  - [Les agents JADE](#les-agents-jade)
+  - [Structure des fichiers](#structure-des-fichiers)
+- [⚙️ Formule ACO détaillée](#️-formule-aco-détaillée)
+- [🚀 Installation & Lancement](#-installation--lancement)
+- [🎛️ Scénarios & Configuration](#️-scénarios--configuration)
+- [📊 Métriques & Observabilité](#-métriques--observabilité)
+- [🧪 Tests](#-tests)
+- [📚 Références](#-références)
+- [📄 Licence](#-licence)
 
-Les **catastrophes naturelles** (séismes, inondations, glissements de terrain, effondrements) et les **catastrophes d'origine humaine** (explosions, effondrements de bâtiments, accidents industriels) créent des situations d'urgence où chaque minute perdue peut coûter des vies humaines.
+---
 
-Dans ces environnements :
-- **L'accès est dangereux** pour les secouristes (décombres instables, gaz toxiques, effondrements secondaires)
-- **La visibilité est réduite** (fumée, poussière, obscurité)
-- **Les communications sont dégradées** (infrastructures détruites, interférences)
-- **La zone est vaste** et difficile à couvrir rapidement
-- **Le temps est compté** : le taux de survie chute de **7 à 10% par heure** après un séisme (Goldstein, 2011)
+## 🎯 Vue d'ensemble
 
-### 1.2 Constats Alarmants
+Dans une zone post-catastrophe, chaque minute compte : le taux de survie chute de **7 à 10 % par heure** après un séisme. Les secouristes humains ne peuvent pas couvrir rapidement une vaste zone dangereuse.
 
-| Constat | Chiffre | Source |
-|---|---|---|
-| Taux de survie après 24h sous les décombres | < 30% | WHO, 2020 |
-| Temps moyen pour couvrir 1 km² par des secouristes | 4-6 heures | INSARAG, 2019 |
-| Zones inaccessibles dans les 6 premières heures | 60-80% de la zone sinistrée | UNDAC, 2021 |
-| Réduction du temps de recherche avec drones | 40-60% | DJI, 2022 |
-| Nombre de drones déployés par mission | 1-3 (insuffisant) | Croix-Rouge, 2023 |
+**DroneSwarm-SAR** résout ce problème avec un **essaim de drones autonomes** qui :
 
-### 1.3 Limites des Approches Actuelles
-
-| Approche | Limites |
+| Capacité | Description |
 |---|---|
-| **Secouristes humains** | Risque élevé, couverture lente, fatigue |
-| **Drones télé-pilotés** | Nécessite un opérateur par drone, coordination difficile |
-| **Algorithmes de recherche classiques** | Exploration exhaustive inefficace, pas d'adaptation |
-| **Essaims de drones basiques** | Pas de mémoire collective, pas d'apprentissage |
-| **ACO classique** | Convergence lente, pas d'évaporation différenciée, pas de validation collective |
+| 🗺️ **Explorer** | Couvrir la zone de façon coordonnée, sans carte centrale |
+| 👁️ **Détecter** | Repérer les victimes dans un rayon de perception local |
+| 🐜 **Communiquer** | Déposer/lire des phéromones virtuelles (stigmergie) |
+| ✅ **Valider** | Confirmer une victime par consensus (plusieurs drones) |
+| 📍 **Optimiser** | Mémoriser le meilleur chemin base ↔ victime |
+| 🔋 **S'adapter** | Rentrer à la base si la batterie faiblit |
+
+**Aucun serveur central** : chaque drone décide localement, et l'intelligence **émerge** de la collaboration.
 
 ---
 
-## 2. Solution Proposée
+## 🧠 Comment ça marche ?
 
-### 2.1 Concept
+### 1. Le principe ACO
 
-Nous proposons un **système multi-agents (SMA) d'essaim de drones** utilisant un **algorithme ACO amélioré** pour coordonner de manière décentralisée la recherche et le sauvetage de victimes dans des environnements post-catastrophe.
+L'**Ant Colony Optimization** (Dorigo, 1992) s'inspire du comportement des fourmis réelles :
 
-Les drones communiquent via **stigmergie** (phéromones virtuelles) et **messages ACL** (FIPA) pour :
-1. Explorer la zone sinistrée de manière coordonnée
-2. Détecter et confirmer la présence de victimes
-3. Optimiser les trajets base ↔ victime pour le ravitaillement et l'évacuation
-4. S'adapter dynamiquement aux changements de l'environnement
+```
+🐜 Une fourmi explore au hasard
+   ↓
+🍎 Elle trouve de la nourriture
+   ↓
+🟡 En rentrant, elle dépose une phéromone sur son chemin
+   ↓
+🐜🐜 D'autres fourmis suivent cette piste (plus concentrée = plus attractive)
+   ↓
+💨 La phéromone s'évapore avec le temps (les mauvais chemins disparaissent)
+   ↓
+✅ Émergence du chemin le plus court, sans chef
+```
 
-### 2.2 Analogie ACO ↔ Sauvetage
+**Transposé au sauvetage :**
 
-| Concept ACO | Application Sauvetage | Bénéfice |
-|---|---|---|
-| **Fourmi** 🐜 | Drone autonome | Décentralisation, robustesse |
-| **Nid** 🏠 | Base de secours (décollage/atterrissage, recharge) | Point de départ et de retour |
-| **Nourriture** 🍎 | **Victime détectée** | Objectif de la mission |
-| **Phéromone positive** 🟡 | Zone déjà explorée avec succès | Évite de re-explorer |
-| **Phéromone négative** 🔴 | Zone dangereuse ou sans intérêt | Repousse les drones |
-| **Évaporation** 💨 | Oubli progressif des zones explorées depuis longtemps | Priorise les zones récentes |
-| **Diversification** 🔀 | Exploration forcée de nouvelles zones | Évite les optimums locaux |
-| **Validation collective** ✅ | Plusieurs drones confirment une victime | Réduit les faux positifs |
-| **Chemin optimal** 📍 | Trajet le plus court et le plus sûr | Évacuation rapide des victimes |
-| **Persistence de direction** ➡️ | Vol en ligne droite | Économie de batterie |
-| **Timeout d'exploration** ⏱️ | Retour à la base si batterie faible | Autonomie énergétique |
+| Concept ACO | Application SAR |
+|---|---|
+| 🐜 Fourmi | 🚁 Drone autonome |
+| 🏠 Nid | 🏥 Base de secours |
+| 🍎 Nourriture | 🆘 Victime |
+| 🟡 Phéromone positive | Zone explorée avec succès |
+| 🔴 Phéromone négative | Obstacle / zone dangereuse |
+| 💨 Évaporation | Oubli progressif des vieilles pistes |
 
-### 2.3 Architecture Multi-Agents
+### 2. La stigmergie
+
+La **stigmergie** est la communication **indirecte** via l'environnement. Les drones ne se parlent pas pour se coordonner : ils **modifient la grille de phéromones**, que les autres lisent.
+
+```
+Drone A explore la case (10,15) → dépose +5 de phéromone
+Drone B voit (10,15) très marquée → la suit (chemin prometteur)
+Drone C voit (10,15) → évite de la re-explorer inutilement
+```
+
+**Avantage :** pas besoin de communication directe permanente, robuste aux pannes.
+
+### 3. Le cycle d'un drone
+
+Chaque drone exécute une boucle périodique (`TickerBehaviour`, toutes les 150 ms) :
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    PLATEFORME JADE                           │
-│                                                              │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐ │
-│  │ Environment   │   │   BaseAgent  │   │   VictimAgent    │ │
-│  │    Agent      │   │   (Nid)      │   │  (Nourriture)    │ │
-│  │               │   │              │   │                  │ │
-│  │ • Grille      │   │ • Création   │   │ • Émet signal    │ │
-│  │ • Obstacles   │   │   drones     │   │ • Confirme       │ │
-│  │ • Phéromones  │   │ • Recharge   │   │   détection      │ │
-│  │ • Évaporation │   │ • Logistique │   │ • Priorité       │ │
-│  └──────┬───────┘   └──────┬───────┘   └────────┬─────────┘ │
-│         │                  │                     │           │
-│  ┌──────┴──────────────────┴─────────────────────┴────────┐ │
-│  │                     DroneAgent × N                      │ │
-│  │  ┌────────────────────────────────────────────────────┐ │ │
-│  │  │  • Exploration autonome                            │ │ │
-│  │  │  • Détection de victimes                           │ │ │
-│  │  │  • Dépôt de phéromones                             │ │ │
-│  │  │  • Communication via DF Service                    │ │ │
-│  │  │  • Gestion de batterie                             │ │ │
-│  │  │  • Retour automatique à la base                    │ │ │
-│  │  └────────────────────────────────────────────────────┘ │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  Communication : ACL Messages (FIPA) + DF Service            │
-│  Coordination : Stigmergie (phéromones virtuelles)           │
+│                    CYCLE D'UN DRONE                         │
+│                                                             │
+│  1. Vérifier si toutes les victimes sont trouvées → arrêt   │
+│  2. Vérifier la batterie (timeout → retour base)            │
+│  3. DÉTECTION (avant déplacement)                           │
+│  4. Se déplacer (choix ACO)                                 │
+│  5. DÉTECTION (après déplacement)                           │
+│  6. Déposer des phéromones                                  │
+│  7. Écouter les retours de l'environnement                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
+**États possibles :**
 
-## 3. Objectifs
+| État | Signification |
+|---|---|
+| `EXPLORING` | Explore activement la zone |
+| `RETURNING` | Rentrer à la base **après avoir trouvé** une victime |
+| `RETURNING_EMPTY` | Rentrer à la base (batterie faible, sans victime) |
+| `IDLE` | Au repos à la base |
 
-### 3.1 Objectif Principal
-
-**Développer un système multi-agents d'essaim de drones autonomes utilisant un algorithme ACO amélioré pour optimiser la recherche et le sauvetage de victimes dans des environnements post-catastrophe, en réduisant le temps de détection d'au moins 50% par rapport aux méthodes conventionnelles.**
-
-### 3.2 Objectifs Spécifiques
-
-| # | Objectif | Métrique | Cible |
-|---|---|---|---|
-| **OS1** | Couverture rapide de la zone sinistrée | % de zone explorée / temps | > 80% en 30 min |
-| **OS2** | Détection fiable des victimes | Taux de faux positifs | < 5% |
-| **OS3** | Optimisation des trajets base ↔ victime | Longueur du chemin | Optimal à 90% |
-| **OS4** | Adaptation dynamique à l'environnement | Temps de réaction à un changement | < 10 secondes |
-| **OS5** | Robustesse aux pannes de drones | % de mission accomplie avec perte de 30% des drones | > 70% |
-| **OS6** | Passage à l'échelle | Temps de calcul / nombre de drones | Linéaire |
-
-### 3.3 Indicateurs de Performance (KPI)
-
-1. **Temps de première détection** (TFD) : temps avant qu'une victime ne soit localisée
-2. **Taux de couverture** (TC) : % de la zone explorée
-3. **Taux de faux positifs** (TFP) : % de détections erronées
-4. **Distance moyenne parcourue** (DMP) : consommation énergétique
-5. **Temps de convergence** (TCV) : temps pour stabiliser le meilleur chemin
-6. **Robustesse** (R) : % de mission accomplie en cas de perte de drones
+> ⚠️ **Important :** un drone **continue de détecter même en mode `RETURNING`**. S'il croise une nouvelle victime sur le chemin du retour, il la signale sans interrompre son retour.
 
 ---
 
-## 4. Verrous Scientifiques et Techniques
+## 🔍 Que se passe-t-il quand un drone trouve une victime ?
 
-### 4.1 Verrou 1 — Coordination Décentralisée
-
-**Problème** : Comment coordonner N drones sans serveur central ni communication permanente ?
-
-**Solution** : Utiliser la **stigmergie** (phéromones virtuelles) comme mémoire collective distribuée. Chaque drone lit/écrit localement sur la grille de phéromones partagée via l'Environment Agent.
-
-**Notre innovation** : Évaporation **différenciée** — les zones confirmées par plusieurs drones sont protégées (évaporation lente), tandis que le bruit est nettoyé rapidement.
-
-### 4.2 Verrou 2 — Gestion de l'Incertitude
-
-**Problème** : L'environnement post-catastrophe est dynamique et incertain (effondrements secondaires, fumée).
-
-**Solution** : 
-- **Phéromones négatives** pour les zones dangereuses
-- **Validation collective** : besoin de 3 drones pour confirmer une victime
-- **Diversification** : si une zone devient trop dangereuse, les drones sont redirigés
-
-### 4.3 Verrou 3 — Contraintes Temps Réel
-
-**Problème** : La prise de décision doit être quasi-instantanée (quelques secondes maximum).
-
-**Solution** : 
-- Algorithmes légers (complexité O(n) par drone)
-- Pas de calcul centralisé
-- Décisions locales uniquement
-
-### 4.4 Verrou 4 — Passage à l'Échelle
-
-**Problème** : Le système doit fonctionner avec 5 à 50 drones sans dégradation.
-
-**Solution** :
-- Communication via DF Service (FIPA) → découverte dynamique
-- Pas de messages broadcast inutiles
-- Évaporation optimisée (cache des chemins confirmés)
-
----
-
-## 5. Innovations par Rapport à l'ACO Classique
-
-| Innovation | ACO Classique | Notre Approche | Bénéfice |
-|---|---|---|---|
-| **Évaporation** | Uniforme (ρ constant) | **Différenciée** (ρ_confirmé = 0.25×ρ_base, ρ_bruit = 2×ρ_base) | Protège les bons chemins, nettoie le bruit |
-| **Validation** | Aucune | **Collective** (seuils MEDIUM=2, FULL=3) | Réduit les faux positifs |
-| **Diversification** | Aucune | **Automatique** après 300 cycles sans amélioration | Évite les optimums locaux |
-| **Pénalités** | Aucune | **Visite récente + Backtracking + Persistance direction** | Évite les boucles |
-| **Guidage** | Heuristique simple | **Gradient de Manhattan** + perception locale | Convergence 2x plus rapide |
-| **Timeout** | Aucun | **Retour forcé après 2000 pas** | Économie d'énergie |
-| **Obstacles** | Non gérés | **Cases impraticables + zones dangereuses** | Environnement réaliste |
-| **Multi-sources** | 1 source | **Multiples victimes** avec priorités | Scénario réaliste |
-
----
-
-## 6. Scénario d'Utilisation
-
-### 6.1 Phase 1 — Déploiement
+Voici la **séquence complète**, étape par étape :
 
 ```
-[Base de secours]
-     │
-     │ 5 drones décollent simultanément
-     │
-     ├── Drone 1 → Secteur Nord-Est
-     ├── Drone 2 → Secteur Nord-Ouest
-     ├── Drone 3 → Secteur Sud-Est
-     ├── Drone 4 → Secteur Sud-Ouest
-     └── Drone 5 → Centre (coordination)
-     
-     Chaque drone commence en mode EXPLORATION
-```
-
-### 6.2 Phase 2 — Exploration
-
-```
-Drone 1 survole le secteur Nord-Est :
-  ├── Case (10,15) → Rien → Phéromone faible déposée
-  ├── Case (11,15) → Rien → Phéromone faible
-  ├── Case (12,15) → Chaleur détectée → Phéromone FORTE
-  └── Envoie signal FOOD_FOUND à EnvironmentAgent
-```
-
-### 6.3 Phase 3 — Détection
-
-```
-EnvironmentAgent reçoit FOOD_FOUND de Drone 1 :
-  ├── Vérifie la signature du chemin
-  ├── Si nouveau meilleur chemin → Renforcement élite
-  ├── Si déjà connu → Incrémente compteur de confirmation
-  └── Si 3 confirmations → Victime CONFIRMÉE
-  
-  ┌────────────────────────────────────────────┐
-  │  🟢 VICTOIRE : Victime localisée en (12,15) │
-  │  Confirmation : 3/3 ✓                       │
-  │  Chemin optimal trouvé : 85.36 unités       │
-  └────────────────────────────────────────────┘
-```
-
-### 6.4 Phase 4 — Évacuation
-
-```
-Base de secours reçoit les coordonnées :
-  ├── Envoie une équipe de secours
-  ├── Drone guide l'équipe via le chemin optimal
-  └── Victime évacuée
-  
-  Pendant ce temps, les autres drones continuent l'exploration
-  → Recherche de nouvelles victimes
+┌──────────────────────────────────────────────────────────────────────┐
+│  ÉTAPE 1 — DÉTECTION                                                 │
+│                                                                      │
+│  Le drone calcule la distance de Manhattan à chaque victime          │
+│  non encore trouvée.                                                 │
+│                                                                      │
+│  Si distance ≤ perceptionRadius (4 cases) → VICTIME DÉTECTÉE         │
+│                                                                      │
+│  ✅ La détection est testée AVANT et APRÈS le déplacement,           │
+│     pour ne rater aucune case traversée.                             │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│  ÉTAPE 2 — ENREGISTREMENT LOCAL                                      │
+│                                                                      │
+│  grid.addVictimPath(chemin)   → la victime est marquée "trouvée"     │
+│  stats.recordAntPath(...)     → calcul du facteur de renfort ACO     │
+│                                                                      │
+│  Le chemin complet (base → ... → victime) est mémorisé.              │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│  ÉTAPE 3 — DÉPÔT DE PHÉROMONES                                       │
+│                                                                      │
+│  Le drone dépose une phéromone sur TOUT son chemin :                 │
+│                                                                      │
+│      quantité = 100 / (1 + distance_parcourue)                       │
+│                                                                      │
+│  → Plus le chemin est court, plus la phéromone est forte.            │
+│  → Les autres drones seront attirés vers ce chemin prometteur.       │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│  ÉTAPE 4 — NOTIFICATION (messages ACL)                               │
+│                                                                      │
+│  📤 Drone → EnvironmentAgent : "VICTIM_FOUND:factor:signature:x,y"   │
+│  📤 Drone → VictimAgent      : "victim_detected:x,y"                 │
+│                                                                      │
+│  📥 VictimAgent → Drone      : "victim_confirmed:n"  (accusé)        │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│  ÉTAPE 5 — VALIDATION COLLECTIVE (EnvironmentAgent)                  │
+│                                                                      │
+│  L'environnement vérifie :                                           │
+│   • Cooldown respecté ? (évite le spam)                              │
+│   • Signature exacte OU similarité ≥ 80 % avec le meilleur chemin ?  │
+│                                                                      │
+│  Si validé → renforcement élite + "PATH_ACCEPTED"                    │
+│  Sinon     → "PATH_REJECTED" (le drone booste son exploration)       │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│  ÉTAPE 6 — RETOUR & SECOURS                                          │
+│                                                                      │
+│  Le drone passe en RETURNING et suit son chemin à l'envers.          │
+│  À l'arrivée : Drone → BaseAgent : "VICTIM_RESCUED"                  │
+│  La base comptabilise la victime secourue.                           │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 7. Travaux Connexes
+## 🤝 Collaboration entre agents
 
-| Travail | Approche | Limite | Notre apport |
-|---|---|---|---|
-| **Dorigo (1992)** — ACO original | Algorithmes centralisés | Pas de SMA | Distribution complète |
-| **Alers et al. (2014)** — Drones ACO | Essaim de drones | Pas d'obstacles | Obstacles + zones dangereuses |
-| **Sauter et al. (2019)** — SAR drones | Vision par ordinateur | Coordination limitée | Stigmergie + validation collective |
-| **Pérez-Carabaza et al. (2022)** — ACO recherche | Évaporation uniforme | Convergence lente | Évaporation différenciée |
-| **Notre projet** | ACO amélioré + SMA + JADE | — | **Solution complète** |
+### Protocole de communication
+
+Toute la communication passe par des **messages ACL (FIPA)** via JADE. Les constantes sont centralisées dans `MessageProtocol`.
+
+```
+                    ┌──────────────────┐
+                    │ EnvironmentAgent │  ← orchestrateur
+                    │  (grille, phéro) │
+                    └────────┬─────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+   ┌────▼─────┐         ┌────▼─────┐         ┌───▼──────┐
+   │DroneAgent│◄───────►│DroneAgent│  ...    │DroneAgent│
+   │   #1     │         │   #2     │         │   #N     │
+   └────┬─────┘         └──────────┘         └──────────┘
+        │
+        │  ┌──────────────┐        ┌──────────────┐
+        ├─►│ VictimAgent  │        │  BaseAgent   │
+        │  │ (confirmation)│        │ (logistique) │
+        │  └──────────────┘        └──────────────┘
+        └──────────────────────────────────────────►
+```
+
+**Table des messages :**
+
+| Message | Émetteur → Récepteur | Rôle |
+|---|---|---|
+| `VICTIM_FOUND:factor:signature:x,y` | Drone → Environment | Proposer une détection |
+| `PATH_ACCEPTED:factor:n` | Environment → Drone | Chemin validé (renfort) |
+| `PATH_REJECTED:raison` | Environment → Drone | Chemin rejeté (booste l'exploration) |
+| `DIVERSIFY` | Environment → Tous | Ordre de diversification (stagnation) |
+| `victim_detected:x,y` | Drone → Victim | Notifier la victime |
+| `victim_confirmed:n` | Victim → Drone | Accusé de réception |
+| `VICTIM_RESCUED` | Drone → Base | Victime ramenée à la base |
+
+### Validation collective
+
+Une victime n'est **confirmée** qu'après plusieurs détections indépendantes :
+
+| Seuil | Constante | Effet |
+|---|---|---|
+| **1** détection | — | Victime enregistrée, renfort ×30 % |
+| **2** détections | `MEDIUM_THRESHOLD` | Renfort ×60 %, évaporation lente activée |
+| **3** détections | `FULL_THRESHOLD` | Renfort ×100 % (confirmation complète) |
+
+**Pourquoi ?** Cela **réduit les faux positifs** : si 3 drones indépendants détectent la même victime, la probabilité d'erreur est très faible.
 
 ---
 
-## 8. Structure du Projet
+## 🏛️ Architecture
+
+### Vue en couches
+
+Le projet suit une **architecture en couches** stricte, où la logique métier est **totalement découplée** de l'infrastructure JADE.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  COUCHE 4 : AGENTS (JADE)          ← Infrastructure            │
+│  DroneAgent, EnvironmentAgent, BaseAgent, VictimAgent          │
+│  → UNIQUEMENT : messaging ACL, behaviours, cycle de vie        │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │ délègue
+┌──────────────────────────▼─────────────────────────────────────┐
+│  COUCHE 3 : PROTOCOLE & ORCHESTRATION                          │
+│  MessageProtocol (constantes), Statistics (façade)             │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │ utilise
+┌──────────────────────────▼─────────────────────────────────────┐
+│  COUCHE 2 : DOMAINE (POJO 100 % testable)                      │
+│  PheromoneField · VictimRegistry · AntColonyOptimizer          │
+│  DroneModel · Grid · Position                                  │
+│  → AUCUNE dépendance à JADE ni à Swing                         │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │ configuré par
+┌──────────────────────────▼─────────────────────────────────────┐
+│  COUCHE 1 : CONFIG & RUNTIME                                   │
+│  SimulationConfig · SimulationRuntimeControl · Scenario        │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Règle d'or :** le package `domain/` ne contient **jamais** d'import `jade.*` ni `javax.swing.*`. C'est ce qui rend la logique ACO **testable unitairement**.
+
+### Les agents JADE
+
+| Agent | Service DF | Rôle |
+|---|---|---|
+| **EnvironmentAgent** | `EnvironmentService` | Orchestre : crée les drones/victimes, gère l'évaporation, valide les détections, détecte la stagnation |
+| **DroneAgent** | `DroneService` | Explore, détecte, dépose des phéromones, rentre à la base |
+| **BaseAgent** | `BaseService` | Logistique : accuse réception des retours, compte les sauvetages |
+| **VictimAgent** | `VictimService` | Représente une victime, confirme les détections |
+
+### Structure des fichiers
 
 ```
 📦 DroneSwarm-SAR
-├── 📄 pom.xml                    # Configuration Maven
-├── 📄 README.md                  # Documentation
-├── 📄 LICENSE                    # Licence MIT
-├── 📂 src/
-│   ├── 📂 main/
-│   │   └── 📂 resources/
-│   │       └── 📄 logback.xml    # Configuration logs
-│   ├── 📂 agents/
-│   │   ├── 📄 DroneAgent.java    # Agent drone (exploration, détection)
-│   │   ├── 📄 EnvironmentAgent.java  # Agent environnement (grille, obstacles)
-│   │   ├── 📄 BaseAgent.java     # Agent base de secours (logistique)
-│   │   └── 📄 VictimAgent.java   # Agent victime (détection, confirmation)
-│   ├── 📂 environment/
-│   │   ├── 📄 Grid.java          # Grille avec obstacles et phéromones
-│   │   ├── 📄 GridPanel.java     # Rendu graphique (carte catastrophe)
-│   │   ├── 📄 SimulationFrame.java   # Interface utilisateur
-│   │   └── 📄 Position.java      # Coordonnées
-│   ├── 📂 main/
-│   │   └── 📄 LauncherMain.java  # Point d'entrée
-│   └── 📂 utils/
-│       ├── 📄 SimulationConfig.java   # Configuration
-│       ├── 📄 SimulationRuntimeControl.java  # Contrôle runtime
-│       └── 📄 Statistics.java     # Statistiques
+├── 📄 pom.xml
+├── 📄 README.md
+├── 📄 run.bat                          # Lanceur portable (auto JAVA_HOME)
+│
+├── 📂 src/main/java/
+│   │
+│   ├── 📂 domain/                      # 🧠 LOGIQUE MÉTIER PURE (0 dépendance JADE)
+│   │   ├── 📂 pheromone/
+│   │   │   └── PheromoneField.java     # Matrice + évaporation différenciée + élite
+│   │   ├── 📂 victim/
+│   │   │   └── VictimRegistry.java     # SOURCE UNIQUE de vérité des victimes
+│   │   ├── 📂 aco/
+│   │   │   └── AntColonyOptimizer.java # Sélection probabiliste ACO
+│   │   └── 📂 drone/
+│   │       └── DroneModel.java         # Machine à états + batterie
+│   │
+│   ├── 📂 agents/                      # 📡 INFRASTRUCTURE JADE
+│   │   ├── 📂 protocol/
+│   │   │   └── MessageProtocol.java    # Toutes les constantes de communication
+│   │   ├── DroneAgent.java
+│   │   ├── EnvironmentAgent.java
+│   │   ├── BaseAgent.java
+│   │   └── VictimAgent.java
+│   │
+│   ├── 📂 environment/                 # 🗺️ TOPOLOGIE & UI
+│   │   ├── Grid.java                   # Grille, obstacles, voisinage
+│   │   ├── Position.java               # Coordonnées (x, y)
+│   │   ├── GridPanel.java              # Rendu graphique (heatmap)
+│   │   └── SimulationFrame.java        # Fenêtre Swing + sliders
+│   │
+│   ├── 📂 utils/                       # ⚙️ CONFIG & RUNTIME
+│   │   ├── SimulationConfig.java
+│   │   ├── SimulationRuntimeControl.java
+│   │   ├── SimulationScenario.java
+│   │   ├── Statistics.java
+│   │   └── MetricsExporter.java
+│   │
+│   └── 📂 main/
+│       └── LauncherMain.java           # Point d'entrée
+│
+├── 📂 src/main/resources/
+│   └── logback.xml
+│
 ├── 📂 design/
-│   ├── 📂 GAIA/                  # Modèle de rôles
-│   └── 📂 AUML/                  # Diagrammes d'états
-└── 📂 report/
-    └── 📄 main.tex               # Rapport LaTeX
+│   ├── 📂 GAIA/                        # Modèle de rôles
+│   └── 📂 AUML/                        # Diagrammes d'états
+│
+└── 📂 logs/                            # Métriques CSV générées
 ```
 
 ---
 
-## 9. Références
+## ⚙️ Formule ACO détaillée
 
-1. Dorigo, M., & Gambardella, L. M. (1997). Ant colony system: A cooperative learning approach to the traveling salesman problem. *IEEE Transactions on Evolutionary Computation*, 1(1), 53-66.
-2. Wooldridge, M. (2009). *An Introduction to MultiAgent Systems*. John Wiley & Sons.
-3. Bellifemine, F., Caire, G., & Greenwood, D. (2007). *Developing Multi-Agent Systems with JADE*. Wiley.
-4. Alers, S., Bloembergen, D., Hennes, D., de Jong, S., Kaisers, M., Lemmens, N., ... & Tuyls, K. (2014). Bee-inspired foraging in an experimental multi-agent system. *Adaptive and Learning Agents*, 1-15.
-5. Pérez-Carabaza, S., Besada-Portas, E., López-Orozco, J. A., & de la Cruz, J. M. (2022). A multi-UAV minimum time search planner based on ACOR. *Engineering Applications of Artificial Intelligence*, 107, 104525.
-6. Goldstein, P. (2011). *The Seismic Design of Buildings*. CRC Press.
-7. INSARAG (2019). *Guidelines and Methodology*. International Search and Rescue Advisory Group.
-8. Croix-Rouge (2023). *Rapport sur l'utilisation des drones dans les opérations de secours*.
+À chaque pas, le drone choisit le prochain voisin selon une **probabilité pondérée** :
+
+$$
+P(i) \propto \underbrace{(\tau_i + 1)^{\alpha}}_{\text{phéromone}} \cdot \underbrace{\eta_i^{\beta}}_{\text{attraction victime}} \cdot \underbrace{\text{persistance}}_{\text{continuité}} \cdot \underbrace{\text{pénalités}}_{\text{anti-boucle}} \cdot \underbrace{\text{biais}}_{\text{couverture}} \cdot \underbrace{\text{répulsion}}_{\text{anti-redondance}}
+$$
+
+| Terme | Formule | Rôle |
+|---|---|---|
+| **Phéromone** | $(\tau_i + 1)^{\alpha}$ | Suit les pistes prometteuses |
+| **Attraction** | $\eta_i = 1 + \frac{50}{d+1}$ | Se dirige vers les victimes proches |
+| **Persistance** | `3.0` si même direction, sinon `1.0` | Évite les zigzags (économie batterie) |
+| **Pénalité visite** | `0.35` si visité récemment | Anti-boucle |
+| **Pénalité retour** | `0.15` si case précédente | Anti-backtracking |
+| **Biais directionnel** | $1 + \cos(\theta) \cdot 2$ | Chaque drone couvre sa zone |
+| **Répulsion** | $1 - \sum \frac{r-d+1}{r} \cdot 0.3$ | Évite les autres drones |
+
+**Exploration aléatoire :** avec probabilité `explorationRate` (20 %), le drone choisit un voisin **au hasard** → évite les optima locaux.
+
+### Innovations vs ACO classique
+
+| Innovation | ACO classique | DroneSwarm-SAR |
+|---|---|---|
+| **Évaporation** | Uniforme | **Différenciée** : ρ_confirmé = 0.25×ρ, ρ_bruit = 2×ρ |
+| **Validation** | Aucune | **Collective** (seuils 2 et 3) |
+| **Diversification** | Aucune | **Automatique** après stagnation (300 cycles) |
+| **Pénalités** | Aucune | Visite + backtracking + persistance |
+| **Guidage** | Heuristique simple | Gradient de Manhattan + perception locale |
+| **Obstacles** | Non gérés | Cases impraticables + zones dangereuses |
+
+---
+
+## 🚀 Installation & Lancement
+
+### Prérequis
+
+| Outil | Version | Notes |
+|---|---|---|
+| **JDK** | 17+ | `C:\Program Files\Java\jdk-17` |
+| **JADE** | 4.6.0 | Récupéré via Maven |
+| **Maven** | 3.8+ | Optionnel (ou `run.bat`) |
+
+### Méthode 1 — `run.bat` (recommandé)
+
+```cmd
+run.bat
+```
+
+Le script **détecte automatiquement** `JAVA_HOME`, **compile si nécessaire**, puis lance la simulation.
+
+**Avec options :**
+
+```cmd
+run.bat --scenario=demo --no-sniffer
+```
+
+> 💡 **Sous PowerShell**, préfixez par `.\` :
+> ```powershell
+> .\run.bat --scenario=demo --no-sniffer
+> ```
+
+### Méthode 2 — Maven
+
+```bash
+mvn clean compile
+mvn exec:java
+```
+
+### Méthode 3 — Compilation manuelle
+
+```powershell
+$m="$env:USERPROFILE\.m2\repository"
+$cp="$m\com\tilab\jade\jade\4.6.0\jade-4.6.0.jar;$m\ch\qos\logback\logback-classic\1.5.3\logback-classic-1.5.3.jar;$m\ch\qos\logback\logback-core\1.5.3\logback-core-1.5.3.jar;$m\org\slf4j\slf4j-api\2.0.12\slf4j-api-2.0.12.jar"
+
+$files = Get-ChildItem -Recurse -Path src\main\java -Filter *.java | ForEach-Object { $_.FullName }
+& "C:\Program Files\Java\jdk-17\bin\javac.exe" -encoding UTF-8 -cp $cp -d target\classes $files
+
+& "C:\Program Files\Java\jdk-17\bin\java.exe" -cp "$cp;target\classes" main.LauncherMain
+```
+
+### Interface graphique
+
+Au lancement, vous verrez :
+
+| Fenêtre | Contenu |
+|---|---|
+| **JADE RMA** | Gestion de la plateforme |
+| **SimulationFrame** | La carte : heatmap phéromones, obstacles, base, victimes, drones |
+| **Sniffer** (optionnel) | Visualisation des messages ACL en temps réel |
+
+**Contrôles disponibles dans l'UI :**
+
+- 🎚️ **Sliders** : vitesse, taux d'exploration, α, β, évaporation
+- ⏸️ **Bouton Pause / Reprendre**
+- 📜 **Zone d'événements** : détections en direct
+- 📊 **Barre de progression** : victimes trouvées
+
+---
+
+## 🎛️ Scénarios & Configuration
+
+### Scénarios prédéfinis
+
+```cmd
+run.bat --scenario=<nom>
+```
+
+| Scénario | Grille | Drones | Victimes | Obstacles | Cas d'usage |
+|---|---|---|---|---|---|
+| `demo` | 30×30 | 5 | 2 | 10 | Démonstration rapide |
+| `standard` | 60×60 | 10 | 5 | 30 | Équilibre par défaut |
+| `urban` | 80×80 | 20 | 8 | 80 | Milieu dense |
+| `disaster` | 100×100 | 8 | 12 | 50 | Grande zone |
+| `nocturnal` | 60×60 | 15 | 6 | 40 | Perception réduite (rayon 2) |
+
+### Arguments CLI
+
+| Argument | Effet |
+|---|---|
+| `--scenario=<nom>` | Sélectionne un scénario |
+| `--no-sniffer` | Désactive le Sniffer JADE |
+
+### Paramètres clés (`SimulationConfig`)
+
+| Paramètre | Défaut | Description |
+|---|---|---|
+| `gridWidth` / `gridHeight` | 60 | Dimensions de la zone |
+| `droneCount` | 10 | Nombre de drones |
+| `victimCount` | 5 | Nombre de victimes |
+| `obstacleCount` | 30 | Nombre d'obstacles |
+| `alpha` (α) | 1.0 | Poids des phéromones |
+| `beta` (β) | 1.5 | Poids de l'attraction victime |
+| `rho` (ρ) | 0.02 | Taux d'évaporation de base |
+| `randomExploration` | 0.20 | Probabilité d'exploration aléatoire |
+| `perceptionRadius` | 4 | Rayon de détection (cases) |
+| `stagnationThreshold` | 300 | Cycles avant diversification |
+| `maxDroneSteps` | 3000 | Autonomie max (pas) |
+
+---
+
+## 📊 Métriques & Observabilité
+
+### Export CSV
+
+Toutes les 10 itérations, l'agent Environnement exporte :
+
+```
+logs/metrics_<timestamp>.csv
+```
+
+| Colonne | Description |
+|---|---|
+| `iteration` | Numéro d'itération |
+| `shortest_path` | Meilleure distance connue |
+| `confirmations` | Confirmations de la victime courante |
+| `discoveries` | Nombre total de détections |
+| `stagnation_cycles` | Cycles depuis la dernière amélioration |
+| `drones_active` | Nombre de drones |
+| `victims_found` | Victimes distinctes trouvées |
+
+### Logs
+
+Configurés via `logback.xml`. Niveaux utiles :
+
+```
+[INFO ] Drone #7: victime détectée à (29,15) (distance 3) [état: RETURNING]
+[INFO ] [SEND] Drone #7 → Environment (victime à (29,15), renfort 30%)
+[INFO ] [VALIDATION] Victime confirmée! Renfort x30% (confirmations: 1/3)
+[INFO ] [RECV] Drone #7 : victime confirmée par Victim_29_15
+[WARN ] [STAGNATION] Itération 320 → diversification
+```
+
+---
+
+## 🧪 Tests
+
+La couche `domain/` est **conçue pour être testée sans JADE** :
+
+```java
+// Exemple : tester l'optimiseur ACO en isolation
+PheromoneField field = new PheromoneField(10, 10, SimulationConfig.defaults());
+AntColonyOptimizer aco = new AntColonyOptimizer(new Random(42));
+Position next = aco.selectNext(candidates, field, context);
+assertNotNull(next);
+```
+
+```bash
+mvn test
+```
+
+---
+
+## 📚 Références
+
+1. **Dorigo, M., & Gambardella, L. M.** (1997). *Ant colony system: A cooperative learning approach to the traveling salesman problem.* IEEE Transactions on Evolutionary Computation, 1(1), 53-66.
+2. **Wooldridge, M.** (2009). *An Introduction to MultiAgent Systems.* John Wiley & Sons.
+3. **Bellifemine, F., Caire, G., & Greenwood, D.** (2007). *Developing Multi-Agent Systems with JADE.* Wiley.
+4. **Pérez-Carabaza, S. et al.** (2022). *A multi-UAV minimum time search planner based on ACOR.* Engineering Applications of AI, 107, 104525.
+5. **Alers, S. et al.** (2014). *Bee-inspired foraging in an experimental multi-agent system.* Adaptive and Learning Agents.
+6. **INSARAG** (2019). *Guidelines and Methodology.* International Search and Rescue Advisory Group.
 
 ---
 
@@ -349,5 +559,14 @@ Ce projet est distribué sous licence **MIT**. Voir le fichier [LICENSE](LICENSE
 
 ## 👥 Auteur
 
-**Mohamed El Attar** — *Master's in AI and Data Science*  
+**Mohamed El Attar** — *Master's in AI and Data Science*
+
 [![GitHub](https://img.shields.io/badge/GitHub-mohamedelattar15-181717?style=flat-square&logo=github)](https://github.com/mohamedelattar15)
+
+---
+
+<div align="center">
+
+**🚁 DroneSwarm-SAR** — *L'intelligence émerge de la collaboration, pas d'un chef.*
+
+</div>
