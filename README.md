@@ -31,6 +31,7 @@
 - [🎛️ Scénarios & Configuration](#️-scénarios--configuration)
 - [📊 Métriques & Observabilité](#-métriques--observabilité)
 - [🧪 Tests](#-tests)
+- [📚 Documentation](#-documentation)
 - [📚 Références](#-références)
 - [📄 Licence](#-licence)
 
@@ -102,18 +103,47 @@ Drone C voit (10,15) → évite de la re-explorer inutilement
 
 Chaque drone exécute une boucle périodique (`TickerBehaviour`, toutes les 150 ms) :
 
+```mermaid
+flowchart TD
+    START([Tick toutes les 150 ms]) --> CHECK_ALL{Toutes les<br/>victimes trouvées ?}
+    CHECK_ALL -->|Oui| STOP([🛑 Drone s'arrête])
+    CHECK_ALL -->|Non| BAT{Batterie<br/>faible ?}
+    BAT -->|Oui| RET_EMPTY[RETURNING_EMPTY]
+    BAT -->|Non| DET1[🔍 Détection AVANT déplacement]
+    RET_EMPTY --> DET1
+    DET1 --> MOVE[🚁 Déplacement ACO]
+    MOVE --> DET2[🔍 Détection APRÈS déplacement]
+    DET2 --> PHERO[🟡 Dépôt de phéromones]
+    PHERO --> LISTEN[📡 Écoute retours Environment]
+    LISTEN --> START
+
+    DET1 -.->|victime à portée| FOUND([🆘 Victime détectée])
+    DET2 -.->|victime à portée| FOUND
+    FOUND --> RETURN[État → RETURNING]
+
+    style STOP fill:#ff6b6b,color:#fff
+    style FOUND fill:#ffd93d,color:#000
+    style MOVE fill:#4dabf7,color:#fff
+    style PHERO fill:#ffa94d,color:#000
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    CYCLE D'UN DRONE                         │
-│                                                             │
-│  1. Vérifier si toutes les victimes sont trouvées → arrêt   │
-│  2. Vérifier la batterie (timeout → retour base)            │
-│  3. DÉTECTION (avant déplacement)                           │
-│  4. Se déplacer (choix ACO)                                 │
-│  5. DÉTECTION (après déplacement)                           │
-│  6. Déposer des phéromones                                  │
-│  7. Écouter les retours de l'environnement                  │
-└─────────────────────────────────────────────────────────────┘
+
+**Machine à états :**
+
+```mermaid
+stateDiagram-v2
+    [*] --> EXPLORING : Départ de la base
+    EXPLORING --> RETURNING : 🆘 Victime trouvée
+    EXPLORING --> RETURNING_EMPTY : 🔋 Batterie faible
+    RETURNING --> IDLE : 🏠 Arrivée à la base
+    RETURNING_EMPTY --> IDLE : 🏠 Arrivée à la base
+    IDLE --> EXPLORING : Nouveau départ
+    EXPLORING --> IDLE : ✅ Mission terminée
+    RETURNING --> IDLE : ⏱️ Timeout (perdu)
+
+    note right of RETURNING
+        ⚠️ La détection reste ACTIVE
+        pendant le retour !
+    end note
 ```
 
 **États possibles :**
@@ -131,7 +161,43 @@ Chaque drone exécute une boucle périodique (`TickerBehaviour`, toutes les 150 
 
 ## 🔍 Que se passe-t-il quand un drone trouve une victime ?
 
-Voici la **séquence complète**, étape par étape :
+Voici la **séquence complète** de collaboration entre agents :
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as 🚁 DroneAgent
+    participant E as 🌍 EnvironmentAgent
+    participant V as 🆘 VictimAgent
+    participant B as 🏥 BaseAgent
+
+    Note over D: Distance Manhattan ≤ 4 cases
+    D->>D: 🔍 Victime détectée !
+    D->>D: grid.addVictimPath(chemin)
+    D->>D: stats.recordAntPath(chemin, distance)
+    D->>D: 🟡 Dépôt phéromones (100 / 1+distance)
+
+    D->>E: INFORM VICTIM_FOUND:factor:sig:x,y
+    D->>V: INFORM victim_detected:x,y
+    V-->>D: INFORM victim_confirmed:1
+
+    Note over E: Vérif cooldown + similarité ≥ 80%
+    alt Chemin validé
+        E->>E: Renforcement élite des phéromones
+        E-->>D: INFORM PATH_ACCEPTED:factor:n
+        D->>D: État → RETURNING
+    else Chemin rejeté
+        E-->>D: INFORM PATH_REJECTED:SIGNATURE
+        D->>D: Boost exploration (diversification)
+    end
+
+    Note over D: Retour à la base (détection toujours active)
+    D->>B: INFORM VICTIM_RESCUED
+    B->>B: victimsRescued++
+    B-->>D: INFORM NEW_MISSION
+```
+
+**Détail des étapes :**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -203,24 +269,46 @@ Voici la **séquence complète**, étape par étape :
 
 Toute la communication passe par des **messages ACL (FIPA)** via JADE. Les constantes sont centralisées dans `MessageProtocol`.
 
-```
-                    ┌──────────────────┐
-                    │ EnvironmentAgent │  ← orchestrateur
-                    │  (grille, phéro) │
-                    └────────┬─────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-   ┌────▼─────┐         ┌────▼─────┐         ┌───▼──────┐
-   │DroneAgent│◄───────►│DroneAgent│  ...    │DroneAgent│
-   │   #1     │         │   #2     │         │   #N     │
-   └────┬─────┘         └──────────┘         └──────────┘
-        │
-        │  ┌──────────────┐        ┌──────────────┐
-        ├─►│ VictimAgent  │        │  BaseAgent   │
-        │  │ (confirmation)│        │ (logistique) │
-        │  └──────────────┘        └──────────────┘
-        └──────────────────────────────────────────►
+```mermaid
+graph TB
+    subgraph PLATFORM["🖥️ Plateforme JADE"]
+        E["🌍 EnvironmentAgent<br/><i>EnvironmentService</i><br/>Grille · Phéromones · Validation"]
+        B["🏥 BaseAgent<br/><i>BaseService</i><br/>Logistique · Sauvetages"]
+
+        subgraph SWARM["🚁 Essaim de drones"]
+            D1["Drone #1"]
+            D2["Drone #2"]
+            DN["Drone #N"]
+        end
+
+        V1["🆘 VictimAgent<br/><i>VictimService</i>"]
+        V2["🆘 VictimAgent"]
+    end
+
+    D1 <-->|"VICTIM_FOUND / PATH_ACCEPTED"| E
+    D2 <-->|"VICTIM_FOUND / PATH_ACCEPTED"| E
+    DN <-->|"VICTIM_FOUND / PATH_ACCEPTED"| E
+
+    E -.->|"DIVERSIFY (broadcast)"| D1
+    E -.->|"DIVERSIFY (broadcast)"| D2
+    E -.->|"DIVERSIFY (broadcast)"| DN
+
+    D1 -->|"victim_detected"| V1
+    V1 -->|"victim_confirmed"| D1
+    D2 -->|"victim_detected"| V2
+    V2 -->|"victim_confirmed"| D2
+
+    D1 -->|"VICTIM_RESCUED"| B
+    B -->|"NEW_MISSION"| D1
+
+    E -.->|"🔗 Stigmergie (phéromones partagées)"| SWARM
+
+    style E fill:#4dabf7,color:#fff
+    style B fill:#51cf66,color:#fff
+    style V1 fill:#ff6b6b,color:#fff
+    style V2 fill:#ff6b6b,color:#fff
+    style PLATFORM fill:#f8f9fa,stroke:#adb5bd
+    style SWARM fill:#e7f5ff,stroke:#4dabf7
 ```
 
 **Table des messages :**
@@ -255,32 +343,26 @@ Une victime n'est **confirmée** qu'après plusieurs détections indépendantes 
 
 Le projet suit une **architecture en couches** stricte, où la logique métier est **totalement découplée** de l'infrastructure JADE.
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  COUCHE 4 : AGENTS (JADE)          ← Infrastructure            │
-│  DroneAgent, EnvironmentAgent, BaseAgent, VictimAgent          │
-│  → UNIQUEMENT : messaging ACL, behaviours, cycle de vie        │
-└──────────────────────────┬─────────────────────────────────────┘
-                           │ délègue
-┌──────────────────────────▼─────────────────────────────────────┐
-│  COUCHE 3 : PROTOCOLE & ORCHESTRATION                          │
-│  MessageProtocol (constantes), Statistics (façade)             │
-└──────────────────────────┬─────────────────────────────────────┘
-                           │ utilise
-┌──────────────────────────▼─────────────────────────────────────┐
-│  COUCHE 2 : DOMAINE (POJO 100 % testable)                      │
-│  PheromoneField · VictimRegistry · AntColonyOptimizer          │
-│  DroneModel · Grid · Position                                  │
-│  → AUCUNE dépendance à JADE ni à Swing                         │
-└──────────────────────────┬─────────────────────────────────────┘
-                           │ configuré par
-┌──────────────────────────▼─────────────────────────────────────┐
-│  COUCHE 1 : CONFIG & RUNTIME                                   │
-│  SimulationConfig · SimulationRuntimeControl · Scenario        │
-└────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    L4["<b>COUCHE 4 — AGENTS (JADE)</b><br/>DroneAgent · EnvironmentAgent<br/>BaseAgent · VictimAgent<br/><i>→ messaging ACL, behaviours</i>"]
+    L3["<b>COUCHE 3 — PROTOCOLE & ORCHESTRATION</b><br/>MessageProtocol · Statistics<br/><i>→ constantes, façade métriques</i>"]
+    L2["<b>COUCHE 2 — DOMAINE (POJO 100% testable)</b><br/>PheromoneField · VictimRegistry<br/>AntColonyOptimizer · DroneModel<br/>Grid · Position<br/><i>→ AUCUNE dépendance JADE/Swing</i>"]
+    L1["<b>COUCHE 1 — CONFIG & RUNTIME</b><br/>SimulationConfig · SimulationRuntimeControl<br/>SimulationScenario<br/><i>→ paramétrage</i>"]
+
+    L4 -->|délègue| L3
+    L3 -->|utilise| L2
+    L2 -->|configuré par| L1
+
+    style L4 fill:#4dabf7,color:#fff
+    style L3 fill:#9775fa,color:#fff
+    style L2 fill:#51cf66,color:#fff
+    style L1 fill:#ffd43b,color:#000
 ```
 
 **Règle d'or :** le package `domain/` ne contient **jamais** d'import `jade.*` ni `javax.swing.*`. C'est ce qui rend la logique ACO **testable unitairement**.
+
+📖 **Documentation détaillée :** voir [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ### Les agents JADE
 
@@ -354,6 +436,26 @@ Le projet suit une **architecture en couches** stricte, où la logique métier e
 $$
 P(i) \propto \underbrace{(\tau_i + 1)^{\alpha}}_{\text{phéromone}} \cdot \underbrace{\eta_i^{\beta}}_{\text{attraction victime}} \cdot \underbrace{\text{persistance}}_{\text{continuité}} \cdot \underbrace{\text{pénalités}}_{\text{anti-boucle}} \cdot \underbrace{\text{biais}}_{\text{couverture}} \cdot \underbrace{\text{répulsion}}_{\text{anti-redondance}}
 $$
+
+**Flux de décision du déplacement :**
+
+```mermaid
+flowchart LR
+    A[Position actuelle] --> B{Voisins<br/>praticables ?}
+    B -->|Aucun| Z[Rester sur place]
+    B -->|Oui| C[Filtrer le backtrack]
+    C --> D{Exploration<br/>aléatoire ?<br/>p = 20%}
+    D -->|Oui| R[🎲 Choix aléatoire]
+    D -->|Non| E["Calcul du poids ACO<br/>P(i) ∝ (τ+1)^α · η^β · ..."]
+    E --> F[Roulette biaisée]
+    F --> G[✅ Prochain pas]
+    R --> G
+
+    style E fill:#4dabf7,color:#fff
+    style G fill:#51cf66,color:#fff
+    style R fill:#ffd43b,color:#000
+    style Z fill:#ff6b6b,color:#fff
+```
 
 | Terme | Formule | Rôle |
 |---|---|---|
@@ -537,6 +639,18 @@ assertNotNull(next);
 ```bash
 mvn test
 ```
+
+---
+
+## 📚 Documentation
+
+| Document | Contenu |
+|---|---|
+| 📖 [**README.md**](README.md) | Vue d'ensemble, fonctionnement, installation |
+| 🏛️ [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Architecture technique détaillée (couches, diagrammes, décisions) |
+| 🤝 [**CONTRIBUTING.md**](CONTRIBUTING.md) | Guide de contribution (conventions, workflow Git) |
+| 🎨 [**design/GAIA**](design/GAIA/01_role_model.md) | Modèle de rôles GAIA |
+| 📐 [**design/AUML**](design/AUML/01_state_diagram.md) | Diagrammes d'états AUML |
 
 ---
 
